@@ -102,11 +102,17 @@ show4hLab = input.bool(defval = true, title = "Show 4H Labels", group = "Mxwll: 
 showAOE = input.bool(defval = true, title = "Show Area of Interest", group = "Mxwll: Area of Interest", tooltip = "Display consolidation zones based on recent price action")
 
 // Session Zones (Phase 5.3)
-showSessions = input.bool(defval = true, title = "Show Session Zones", group = "Mxwll: Sessions", tooltip = "Display background colors for NY/Asia/London trading sessions")
-nyCol = input.color(defval = #f24968, title = "NY Session Color", group = "Mxwll: Sessions", inline = "sess1")
-asCol = input.color(defval = #14D990, title = "Asia Session Color", group = "Mxwll: Sessions", inline = "sess2")
-loCol = input.color(defval = #F2B807, title = "London Session Color", group = "Mxwll: Sessions", inline = "sess3")
-traSession = input.int(defval = 98, minval = 0, maxval = 100, title = "Session Transparency", group = "Mxwll: Sessions", tooltip = "Background transparency for session zones (0 = opaque, 100 = invisible)")
+showNY = input.bool(defval = true, title = "NY Session", group = "Mxwll: Sessions", inline = "ny")
+nyCol = input.color(defval = #f24968, title = "", group = "Mxwll: Sessions", inline = "ny")
+nyTransparency = input.int(defval = 98, minval = 0, maxval = 100, title = "Transparency", group = "Mxwll: Sessions", inline = "ny")
+
+showAsia = input.bool(defval = true, title = "Asia Session", group = "Mxwll: Sessions", inline = "asia")
+asCol = input.color(defval = #14D990, title = "", group = "Mxwll: Sessions", inline = "asia")
+asiaTransparency = input.int(defval = 98, minval = 0, maxval = 100, title = "Transparency", group = "Mxwll: Sessions", inline = "asia")
+
+showLondon = input.bool(defval = true, title = "London Session", group = "Mxwll: Sessions", inline = "london")
+loCol = input.color(defval = #F2B807, title = "", group = "Mxwll: Sessions", inline = "london")
+londonTransparency = input.int(defval = 98, minval = 0, maxval = 100, title = "Transparency", group = "Mxwll: Sessions", inline = "london")
 
 // Session Dashboard (Phase 5.4)
 showDashboard = input.bool(defval = true, title = "Show Session Dashboard", group = "Mxwll: Dashboard", tooltip = "Display information table about current and next trading sessions")
@@ -1211,9 +1217,9 @@ timeIsInRange2(startHour, startMinute, endHour, endMinute) =>
         (nyHour2 > startHour or (nyHour2 == startHour and nyMinute2 >= startMinute)) or (nyHour2 < endHour or (nyHour2 == endHour and nyMinute2 <= endMinute))
 
 // Apply session background colors (must be in global scope)
-bgcolor(enableMxwll and showSessions and timeIsInRange2(9, 30, 16, 0) ? color.new(nyCol, traSession) : na)
-bgcolor(enableMxwll and showSessions and timeIsInRange2(20, 0, 2, 0) ? color.new(asCol, traSession) : na)
-bgcolor(enableMxwll and showSessions and timeIsInRange2(3, 0, 11, 30) ? color.new(loCol, traSession) : na)
+bgcolor(enableMxwll and showNY and timeIsInRange2(9, 30, 16, 0) ? color.new(nyCol, nyTransparency) : na)
+bgcolor(enableMxwll and showAsia and timeIsInRange2(20, 0, 2, 0) ? color.new(asCol, asiaTransparency) : na)
+bgcolor(enableMxwll and showLondon and timeIsInRange2(3, 0, 11, 30) ? color.new(loCol, londonTransparency) : na)
 
 // ============================================================================
 // AUTO FIBONACCI - PHASE 4
