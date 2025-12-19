@@ -1,0 +1,1454 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// Combined Tactical Indicator Suite
+// Integrates: ATR Trend (Full Version) + Mxwll Suite (Phase 1, 2 & 3)
+// Based on ATR Trend by Daniel_Ge + Mxwll Suite by Mxwll Capital
+
+//@version=6
+indicator("Tactical Suite - Full", overlay = true, max_labels_count = 500, max_lines_count = 500, max_boxes_count = 500, max_bars_back = 500)
+
+// ============================================================================
+// MODULE 1: ATR TREND - ALL CONFIGURATIONS
+// ============================================================================
+enableATR = input.bool(defval = true, title = "Enable ATR Trend", group = "═══ ATR TREND ═══")
+
+// Source Settings
+atr_src = input.source(close, 'Source', group = 'ATR: Source Settings', tooltip = 'Source for ATR calculation')
+atr_src_hl = input.bool(true, 'Use Highest High & Lowest Low', group = 'ATR: Source Settings', tooltip = 'Use highest high & lowest low as source. Default is active. If unchecked the highest high & lowest low of \'Source\' will be used. This setting has a low - medium impact on trend calculation.')
+atr_length = input.int(10, 'Time Period', minval = 1, group = 'ATR: Source Settings', tooltip = 'The time period used to calculate ATR trend. Default is 10. This setting has a low - medium impact on trend calculation.')
+
+// ATR Type and Settings
+atr_type = input.string('Classic ATR (RMA)', 'ATR Type', options = ['Classic ATR (RMA)', 'Linear Regression (LSMA)', 'Ehlers Super Smoother', 'Optimum Elliptic Filter', 'Butterworth 2 Pole', 'Hann', 'SMA', 'EMA', 'WMA', 'HMA'], group = 'ATR: Average True Range', tooltip = 'Moving average used to calculate ATR. Default is \'Classic RMA\' which uses the native ATR function. This setting has a medium impact on ATR trend calculation and is mostly for finetuning.')
+atr_multi = input.float(2.0, 'ATR Weight', minval = 0.05, step = 0.05, group = 'ATR: Average True Range', tooltip = 'Default is 2. Higher values provide less false signals but a less \'sensitive\' trend. Lower values provide more signals but also more false signals. This setting has a high impact on ATR trend calculation.')
+fast_atr_multi = input.float(0.5, 'Fast ATR Weight', minval = -5.00, step = 0.05, group = 'ATR: Average True Range', tooltip = 'Default is 0.5. Only used when \'Show Fast Trend\' is active. Usually the same value as \'ATR Weight\' but can be adjusted for finetuning')
+show_fast = input.bool(false, 'Show Fast Trend', group = 'ATR: Average True Range', tooltip = 'Plots an additional trendline which uses the \'fast ATR Weight\' value.')
+show_dc_switch = input.bool(false, 'Show DC Switch', group = 'ATR: Average True Range', tooltip = 'Plots the switch between upper/lower donchain channels (as used in Turtle Trade Channels). This setting is optional but can help to identify early trend changes.')
+
+// Smoothed Range Channel
+show_channel = input.bool(false, 'Show Smoothed Range Channel', group = 'ATR: Smoothed Range Channel', tooltip = 'Show Smoothed Range Channel')
+channel_length = input.int(50, 'Channel Length', minval = 2, group = 'ATR: Smoothed Range Channel', tooltip = 'Default is 50. Lower values are more sensitive to price changes')
+channel_multi = input.float(3.0, 'Channel Multiplier', minval = 0.1, step = 0.2, group = 'ATR: Smoothed Range Channel', tooltip = 'Like BB multiplier. Default is 3.0. Increaes/Decreases channel width.')
+
+// Style Settings
+show_atr_signals = input.bool(false, 'Show Buy/Sell Signals', group = 'ATR: Style', tooltip = 'Shows a buy/sell signal when the trend changes direction. These signals are also used in the corresponding alerts.')
+atr_color_coding = input.bool(true, 'Advanced Color Coding', group = 'ATR: Style', tooltip = 'Uses a different color when the trend starts to change but the change isn\'t confirmed (yet).')
+fast_fill = input.bool(false, 'Fill Fast Trend', group = 'ATR: Style', tooltip = 'Fills the gap between both trendlines (only used when \'Show Fast Trend\' is active).')
+trend_filling = input.bool(false, 'Fill Price/Trend', group = 'ATR: Style', tooltip = 'Fills the gap between the closing price and trend line.')
+channel_fill = input.bool(false, 'Fill Smoothed Range Channel', group = 'ATR: Style', tooltip = 'Fills smoothed range channel.')
+channel_gradient = input.bool(false, 'Use Gradient Filling for Channel', group = 'ATR: Style', tooltip = 'Use Gradient Filling instead of regular filling')
+
+// Linear Regression Adjustments
+lr_offset = input.int(0, 'Linear Regression Offset', group = 'ATR: Linear Regression (LSMA)', tooltip = 'Only used when \'Linear Regression (LSMA)\' is set as ATR type. Default is 0. This setting should be considered as a fine tuning / adjustment option.')
+lr_length = input.int(20, 'Linear Regression Length', minval = 2, group = 'ATR: Linear Regression (LSMA)', tooltip = 'Only used when \'Linear Regression (LSMA)\' is set as ATR type. Default is 20. This setting should be considered as a fine tuning / adjustment option.')
+
+// ============================================================================
+// MODULE 2: MXWLL SUITE (PHASE 1, 2 & 3) - SMART MONEY CONCEPTS
+// ============================================================================
+enableMxwll = input.bool(defval = true, title = "Enable Mxwll Suite", group = "═══ MXWLL SUITE ═══")
+
+// Smart Money Concepts Settings
+bullC = input.color(defval = #14D990, title = "Bull Color", group = "Mxwll: Smart Money Concepts", inline = "colors")
+bearC = input.color(defval = #F24968, title = "Bear Color", group = "Mxwll: Smart Money Concepts", inline = "colors")
+
+// External Structure (Swing Highs/Lows)
+showExt = input.bool(defval = true, title = "Show External Structure", group = "Mxwll: External Structure")
+extSens = input.int(25, "External Sensitivity", options = [10, 25, 50], group = "Mxwll: External Structure", tooltip = "Lookback period for detecting major swing points")
+extStru = input.string(defval = "All", title = "External Structure Type", options = ["All", "BoS", "CHoCH"], group = "Mxwll: External Structure", tooltip = "BoS = Break of Structure, CHoCH = Change of Character")
+
+// Swing Labels
+showHHLH = input.bool(defval = true, title = "Show HH/LH Labels", group = "Mxwll: Swing Labels", tooltip = "Show Higher High / Lower High labels")
+showHLLL = input.bool(defval = true, title = "Show HL/LL Labels", group = "Mxwll: Swing Labels", tooltip = "Show Higher Low / Lower Low labels")
+
+// Internal Structure (Short-term)
+showInt = input.bool(defval = true, title = "Show Internal Structure", group = "Mxwll: Internal Structure")
+intSens = input.int(3, "Internal Sensitivity", options = [3, 5, 8], group = "Mxwll: Internal Structure", tooltip = "Lookback period for detecting minor swing points")
+intStru = input.string(defval = "All", title = "Internal Structure Type", options = ["All", "BoS", "CHoCH"], group = "Mxwll: Internal Structure")
+
+// Order Blocks (Phase 2)
+showOB = input.bool(defval = true, title = "Show Order Blocks", group = "Mxwll: Order Blocks", tooltip = "Display order blocks at swing points")
+showLast = input.int(defval = 10, title = "Max Order Blocks", minval = 0, maxval = 50, group = "Mxwll: Order Blocks", tooltip = "Maximum number of order blocks to display (0 = unlimited)")
+
+// Fair Value Gaps (Phase 3)
+showFVG = input.bool(defval = true, title = "Show Fair Value Gaps", group = "Mxwll: FVG", tooltip = "Display Fair Value Gaps (price inefficiencies)")
+contract = input.bool(defval = false, title = "Contract Violated FVG", group = "Mxwll: FVG", tooltip = "Reduce FVG size when partially filled")
+closeOnly = input.bool(defval = false, title = "Show Closest FVG Only", group = "Mxwll: FVG", tooltip = "Display only the nearest up/down FVG to current price")
+fvgcol = input.color(defval = #F2B807, title = "FVG Color", group = "Mxwll: FVG")
+fvgtra = input.int(defval = 80, minval = 0, maxval = 100, title = "FVG Transparency", group = "Mxwll: FVG")
+
+// Auto Fibonacci (Phase 4)
+showFibs = input.bool(defval = true, title = "Show Auto Fibs", group = "Mxwll: Auto Fibs", tooltip = "Automatically draw Fibonacci retracement levels between major pivots")
+show236 = input.bool(defval = true, title = "", inline = "1", group = "Mxwll: Auto Fibs")
+fib1 = input.float(defval = 0.236, title = "", minval = 0, step = 0.01, inline = "1", group = "Mxwll: Auto Fibs")
+fib1col = input.color(title = "", defval = color.gray, inline = "1", group = "Mxwll: Auto Fibs")
+show382 = input.bool(defval = true, title = "", inline = "2", group = "Mxwll: Auto Fibs")
+fib2 = input.float(defval = 0.382, title = "", minval = 0, step = 0.01, inline = "2", group = "Mxwll: Auto Fibs")
+fib2col = input.color(title = "", defval = color.lime, inline = "2", group = "Mxwll: Auto Fibs")
+show5 = input.bool(defval = true, title = "", inline = "3", group = "Mxwll: Auto Fibs")
+fib3 = input.float(defval = 0.5, title = "", minval = 0, step = 0.01, inline = "3", group = "Mxwll: Auto Fibs")
+fib3col = input.color(title = "", defval = color.yellow, inline = "3", group = "Mxwll: Auto Fibs")
+show618 = input.bool(defval = true, title = "", inline = "4", group = "Mxwll: Auto Fibs")
+fib4 = input.float(defval = 0.618, title = "", minval = 0, step = 0.01, inline = "4", group = "Mxwll: Auto Fibs")
+fib4col = input.color(title = "", defval = color.orange, inline = "4", group = "Mxwll: Auto Fibs")
+show786 = input.bool(defval = true, title = "", inline = "5", group = "Mxwll: Auto Fibs")
+fib5 = input.float(defval = 0.786, title = "", minval = 0, step = 0.01, inline = "5", group = "Mxwll: Auto Fibs")
+fib5col = input.color(title = "", defval = color.red, inline = "5", group = "Mxwll: Auto Fibs")
+
+// High/Low Levels (Phase 5.1)
+show1D = input.bool(defval = true, title = "Show Previous Day High/Low", group = "Mxwll: High/Low", tooltip = "Display previous daily high and low levels")
+show1DLab = input.bool(defval = true, title = "Show 1D Labels", group = "Mxwll: High/Low")
+show4H = input.bool(defval = true, title = "Show 4 Hour High/Low", group = "Mxwll: High/Low", tooltip = "Display rolling 4-hour high and low levels")
+show4hLab = input.bool(defval = true, title = "Show 4H Labels", group = "Mxwll: High/Low")
+
+// Area of Interest (Phase 5.2)
+showAOE = input.bool(defval = true, title = "Show Area of Interest", group = "Mxwll: Area of Interest", tooltip = "Display consolidation zones based on recent price action")
+
+// Session Zones (Phase 5.3)
+showSessions = input.bool(defval = true, title = "Show Session Zones", group = "Mxwll: Sessions", tooltip = "Display background colors for NY/Asia/London trading sessions")
+nyCol = input.color(defval = #f24968, title = "NY Session Color", group = "Mxwll: Sessions", inline = "sess1")
+asCol = input.color(defval = #14D990, title = "Asia Session Color", group = "Mxwll: Sessions", inline = "sess2")
+loCol = input.color(defval = #F2B807, title = "London Session Color", group = "Mxwll: Sessions", inline = "sess3")
+traSession = input.int(defval = 98, minval = 0, maxval = 100, title = "Session Transparency", group = "Mxwll: Sessions", tooltip = "Background transparency for session zones (0 = opaque, 100 = invisible)")
+
+// Session Dashboard (Phase 5.4)
+showDashboard = input.bool(defval = true, title = "Show Session Dashboard", group = "Mxwll: Dashboard", tooltip = "Display information table about current and next trading sessions")
+
+// ============================================================================
+// MODULE 3: DIVERGENCE DETECTION - PHASE 6
+// Based on "Divergence for Many Indicators" by LonesomeTheBlue
+// ============================================================================
+
+// Enable/Disable Divergences (Phase 6.1)
+enableDivergence = input.bool(defval = true, title = "Enable Divergence Detection", group = "═══ DIVERGENCES ═══")
+
+// Pivot Settings (Phase 6.1)
+div_prd = input.int(defval = 5, title = "Pivot Period", minval = 1, maxval = 50, group = "Divergence: Pivot Settings")
+div_source = input.string(defval = "Close", title = "Source for Pivot Points", options = ["Close", "High/Low"], group = "Divergence: Pivot Settings")
+
+// Divergence Type Settings (Phase 6.1)
+div_searchdiv = input.string(defval = "Regular", title = "Divergence Type", options = ["Regular", "Hidden", "Regular/Hidden"], group = "Divergence: Type")
+div_showlimit = input.int(1, title = "Minimum Number of Divergence", minval = 1, maxval = 11, group = "Divergence: Type")
+div_maxpp = input.int(defval = 10, title = "Maximum Pivot Points to Check", minval = 1, maxval = 20, group = "Divergence: Type")
+div_maxbars = input.int(defval = 100, title = "Maximum Bars to Check", minval = 30, maxval = 200, group = "Divergence: Type")
+
+// Display Settings (Phase 6.1)
+div_shownum = input.bool(defval = true, title = "Show Divergence Number", group = "Divergence: Display")
+div_showlast = input.bool(defval = false, title = "Show Only Last Divergence", group = "Divergence: Display")
+div_dontconfirm = input.bool(defval = false, title = "Don't Wait for Confirmation", group = "Divergence: Display")
+div_showlines = input.bool(defval = true, title = "Show Divergence Lines", group = "Divergence: Display")
+div_showpivot = input.bool(defval = false, title = "Show Pivot Points", group = "Divergence: Display")
+div_showindis = input.string(defval = "Full", title = "Show Indicator Names", options = ["Full", "First Letter", "Don't Show"], group = "Divergence: Display")
+
+// Indicators to Check (Phase 6.2)
+div_calcmacd = input.bool(defval = true, title = "MACD", group = "Divergence: Indicators", inline = "ind1")
+div_calcmacda = input.bool(defval = true, title = "MACD Histogram", group = "Divergence: Indicators", inline = "ind1")
+div_calcrsi = input.bool(defval = true, title = "RSI", group = "Divergence: Indicators", inline = "ind2")
+div_calcstoc = input.bool(defval = true, title = "Stochastic", group = "Divergence: Indicators", inline = "ind2")
+div_calccci = input.bool(defval = true, title = "CCI", group = "Divergence: Indicators", inline = "ind3")
+div_calcmom = input.bool(defval = true, title = "Momentum", group = "Divergence: Indicators", inline = "ind3")
+div_calcobv = input.bool(defval = true, title = "OBV", group = "Divergence: Indicators", inline = "ind4")
+div_calcvwmacd = input.bool(true, title = "VWmacd", group = "Divergence: Indicators", inline = "ind4")
+div_calccmf = input.bool(true, title = "Chaikin Money Flow", group = "Divergence: Indicators", inline = "ind5")
+div_calcmfi = input.bool(true, title = "Money Flow Index", group = "Divergence: Indicators", inline = "ind5")
+
+// Colors (Phase 6.1)
+div_pos_reg_div_col = input.color(defval = color.yellow, title = "Positive Regular", group = "Divergence: Colors", inline = "col1")
+div_neg_reg_div_col = input.color(defval = color.navy, title = "Negative Regular", group = "Divergence: Colors", inline = "col1")
+div_pos_hid_div_col = input.color(defval = color.lime, title = "Positive Hidden", group = "Divergence: Colors", inline = "col2")
+div_neg_hid_div_col = input.color(defval = color.red, title = "Negative Hidden", group = "Divergence: Colors", inline = "col2")
+div_pos_div_text_col = input.color(defval = color.black, title = "Positive Text", group = "Divergence: Colors", inline = "col3")
+div_neg_div_text_col = input.color(defval = color.white, title = "Negative Text", group = "Divergence: Colors", inline = "col3")
+
+// Line Styles (Phase 6.1)
+div_reg_div_l_style_ = input.string(defval = "Solid", title = "Regular Line Style", options = ["Solid", "Dashed", "Dotted"], group = "Divergence: Line Style")
+div_hid_div_l_style_ = input.string(defval = "Dashed", title = "Hidden Line Style", options = ["Solid", "Dashed", "Dotted"], group = "Divergence: Line Style")
+div_reg_div_l_width = input.int(defval = 2, title = "Regular Line Width", minval = 1, maxval = 5, group = "Divergence: Line Style")
+div_hid_div_l_width = input.int(defval = 1, title = "Hidden Line Width", minval = 1, maxval = 5, group = "Divergence: Line Style")
+
+// ============================================================================
+// ATR TREND IMPLEMENTATION
+// ============================================================================
+
+// ============================================================================
+// HELPER FUNCTIONS (Simplified versions without external library)
+// ============================================================================
+
+// Half candle helper for color coding
+half_candle() =>
+    (high + low) / 2
+
+// Smooth range function (simplified version)
+smoothrng(src, length, multi) =>
+    wper = length * 2 - 1
+    avrng = ta.ema(math.abs(src - src[1]), length)
+    smoothrng = ta.ema(avrng, wper) * multi
+    smoothrng
+
+// Super Smoother (simplified Ehlers)
+super_smoother(src, length) =>
+    a1 = math.exp(-1.414 * 3.14159 / length)
+    b1 = 2 * a1 * math.cos(1.414 * 180 / length)
+    c2 = b1
+    c3 = -a1 * a1
+    c1 = 1 - c2 - c3
+    var float ss = 0.0
+    ss := c1 * (src + nz(src[1])) / 2 + c2 * nz(ss[1]) + c3 * nz(ss[2])
+    ss
+
+// Hann Window MA
+hann_ma(src, length) =>
+    sum = 0.0
+    sumw = 0.0
+    for i = 0 to length - 1
+        weight = 0.5 * (1 - math.cos(2 * math.pi * i / (length - 1)))
+        sum := sum + src[i] * weight
+        sumw := sumw + weight
+    sum / sumw
+
+// Optimum Elliptic Filter (simplified)
+oef(src) =>
+    a = 0.13785
+    b = 0.0007
+    var float oef = 0.0
+    oef := a * src + b * nz(src[1]) - (1.2103 * nz(oef[1])) + (0.4867 * nz(oef[2]))
+    oef
+
+// Butterworth 2 Pole (simplified)
+butterworth_2Pole(src, length) =>
+    a = math.exp(-1.414 * 3.14159 / length)
+    b = 2 * a * math.cos(1.414 * 1.25 * 3.14159 / length)
+    c2 = b
+    c3 = -a * a
+    c1 = 1 - c2 - c3
+    var float butter = 0.0
+    butter := c1 * (src + nz(src[1])) / 2 + c2 * nz(butter[1]) + c3 * nz(butter[2])
+    butter
+
+// ============================================================================
+// ATR CALCULATION FUNCTION (Extended with all types)
+// ============================================================================
+get_atr(i_length, type) =>
+    trueRange = ta.tr(true)
+    switch type
+        'SMA' => ta.sma(trueRange, i_length)
+        'EMA' => ta.ema(trueRange, i_length)
+        'Classic ATR (RMA)' => ta.atr(i_length)
+        'WMA' => ta.wma(trueRange, i_length)
+        'HMA' => ta.hma(trueRange, i_length)
+        'Ehlers Super Smoother' => super_smoother(trueRange, i_length)
+        'Hann' => hann_ma(trueRange, i_length)
+        'Linear Regression (LSMA)' => ta.linreg(trueRange, lr_length, lr_offset)
+        'Optimum Elliptic Filter' => oef(trueRange)
+        'Butterworth 2 Pole' => butterworth_2Pole(trueRange, i_length)
+        => ta.atr(i_length)
+
+// ============================================================================
+// GLOBAL VARIABLES FOR PLOTTING
+// ============================================================================
+var float atr_trend = na
+var string up_down_trend = na
+var bool buy_trend_signal = false
+var bool sell_trend_signal = false
+var float fast_trend = na
+var string up_down_fast_trend = na
+
+// Plot value variables
+var color atr_plot_color = color.gray
+var color atr_plot_color_advanced = color.gray
+atr_trend_value = float(na)
+atr_fast_trend_value = float(na)
+atr_buy_signal = float(na)
+atr_sell_signal = float(na)
+atr_dc_switch_value = float(na)
+atr_channel_upper = float(na)
+atr_channel_lower = float(na)
+
+// Additional signal variables
+atr_buy_fast_signal = float(na)
+atr_sell_fast_signal = float(na)
+atr_buy_fast_cross_signal = float(na)
+atr_sell_fast_cross_signal = float(na)
+atr_buy_channel_signal = float(na)
+atr_sell_channel_signal = float(na)
+
+if enableATR
+    // Calculate ATR values
+    atr = get_atr(5, atr_type) * atr_multi
+    fast_atr = get_atr(5, atr_type) * fast_atr_multi
+    
+    // Highest/Lowest of source
+    lower = ta.lowest(atr_src, atr_length)
+    upper = ta.highest(atr_src, atr_length)
+    
+    // DC Switch
+    dc_switch = ta.barssince(atr_src >= upper[1]) <= ta.barssince(atr_src <= lower[1]) ? lower : upper
+    
+    // Highest High/Lowest Low
+    if atr_src_hl
+        lower := ta.lowest(low, atr_length)
+        upper := ta.highest(high, atr_length)
+        dc_switch := ta.barssince(high >= upper[1]) <= ta.barssince(low <= lower[1]) ? lower : upper
+    
+    // Trend direction
+    direction = upper > upper[1] ? 'up' : lower < lower[1] ? 'down' : 'neutral'
+    
+    // Half candle for advanced color coding
+    hc = half_candle()
+    
+    // ========================================================================
+    // MAIN ATR TREND LOGIC
+    // ========================================================================
+    if direction == 'up'
+        atr_trend := low - atr
+        if atr_trend < atr_trend[1]
+            atr_trend := atr_trend[1]
+    
+    if direction == 'down'
+        atr_trend := high + atr
+        if atr_trend > atr_trend[1]
+            atr_trend := atr_trend[1]
+    
+    if direction == 'neutral'
+        atr_trend := atr_trend[1]
+    
+    // Buy/Sell signals for main trend
+    up_down_trend := up_down_trend[1]
+    if atr_trend > atr_trend[1]
+        up_down_trend := 'up'
+    if atr_trend < atr_trend[1]
+        up_down_trend := 'down'
+    
+    buy_trend_signal := up_down_trend[1] == 'down' and up_down_trend == 'up'
+    sell_trend_signal := up_down_trend[1] == 'up' and up_down_trend == 'down'
+    
+    // ========================================================================
+    // FAST TREND LOGIC
+    // ========================================================================
+    fast_direction = upper > upper[1] ? 'up' : lower < lower[1] ? 'down' : 'neutral'
+    
+    if fast_direction == 'up'
+        fast_trend := low - fast_atr
+        if fast_trend < fast_trend[1]
+            fast_trend := fast_trend[1]
+    
+    if fast_direction == 'down'
+        fast_trend := high + fast_atr
+        if fast_trend > fast_trend[1]
+            fast_trend := fast_trend[1]
+    
+    if fast_direction == 'neutral'
+        fast_trend := fast_trend[1]
+    
+    // Fast trend signals
+    up_down_fast_trend := up_down_fast_trend[1]
+    if fast_trend > fast_trend[1]
+        up_down_fast_trend := 'up'
+    if fast_trend < fast_trend[1]
+        up_down_fast_trend := 'down'
+    
+    buy_fast_trend = up_down_fast_trend[1] == 'down' and up_down_fast_trend == 'up'
+    sell_fast_trend = up_down_fast_trend[1] == 'up' and up_down_fast_trend == 'down'
+    buy_fast_trend_crossover = ta.crossover(fast_trend, atr_trend)
+    sell_fast_trend_crossunder = ta.crossunder(fast_trend, atr_trend)
+    
+    // ========================================================================
+    // SMOOTHED RANGE CHANNEL
+    // ========================================================================
+    smchr = smoothrng(atr_src, channel_length, channel_multi)
+    channel_upper = atr_trend + smchr
+    channel_lower = atr_trend - smchr
+    buy_channel = close > channel_upper and close[1] < channel_upper
+    sell_channel = close < channel_lower and close[1] > channel_lower
+    
+    // ========================================================================
+    // SET PLOT VALUES
+    // ========================================================================
+    // Colors
+    atr_plot_color := up_down_trend == 'up' ? color.new(#00cbff, 0) : color.new(#ff0099, 0)
+    atr_plot_color_advanced := hc < atr_trend and up_down_trend != 'down' ? color(#ff4100) : up_down_trend == 'up' ? color(#00cbff) : hc > atr_trend ? color(#ff4101) : color(#ff0099)
+    
+    // Main values
+    atr_trend_value := atr_trend
+    atr_fast_trend_value := show_fast ? fast_trend : na
+    atr_dc_switch_value := show_dc_switch ? dc_switch : na
+    atr_channel_upper := show_channel ? channel_upper : na
+    atr_channel_lower := show_channel ? channel_lower : na
+    
+    // Signal values
+    atr_buy_signal := show_atr_signals and buy_trend_signal ? atr_trend - atr : na
+    atr_sell_signal := show_atr_signals and sell_trend_signal ? atr_trend + atr : na
+    atr_buy_fast_signal := show_atr_signals and show_fast and buy_fast_trend ? atr_trend - atr : na
+    atr_sell_fast_signal := show_atr_signals and show_fast and sell_fast_trend ? atr_trend + atr : na
+    atr_buy_fast_cross_signal := show_atr_signals and show_fast and buy_fast_trend_crossover ? atr_trend - atr : na
+    atr_sell_fast_cross_signal := show_atr_signals and show_fast and sell_fast_trend_crossunder ? atr_trend + atr : na
+    atr_buy_channel_signal := show_atr_signals and show_channel and buy_channel ? atr_trend - atr : na
+    atr_sell_channel_signal := show_atr_signals and show_channel and sell_channel ? atr_trend + atr : na
+    
+    // ========================================================================
+    // ALERTS
+    // ========================================================================
+    if buy_trend_signal
+        alert("ATR Trend: Up Trend", alert.freq_once_per_bar_close)
+    if sell_trend_signal
+        alert("ATR Trend: Down Trend", alert.freq_once_per_bar_close)
+    if buy_fast_trend
+        alert("ATR Fast Trend: Up", alert.freq_once_per_bar_close)
+    if sell_fast_trend
+        alert("ATR Fast Trend: Down", alert.freq_once_per_bar_close)
+    if buy_fast_trend_crossover
+        alert("ATR Fast Trend crossed over Trend", alert.freq_once_per_bar_close)
+    if sell_fast_trend_crossunder
+        alert("ATR Fast Trend crossed under Trend", alert.freq_once_per_bar_close)
+    if buy_channel
+        alert("ATR: Price above upper channel", alert.freq_once_per_bar_close)
+    if sell_channel
+        alert("ATR: Price below lower channel", alert.freq_once_per_bar_close)
+
+// ============================================================================
+// PLOTS (All at global scope)
+// ============================================================================
+
+// Helper plots for filling (invisible)
+p00 = plot(enableATR ? atr_trend_value : na, display = display.none, editable = false)
+p99 = plot(atr_src, display = display.none, editable = false)
+
+// Main ATR Trend plots
+p0 = plot(enableATR and atr_color_coding ? atr_trend_value : na, 'ATR Trend - Advanced Color Coding', color = atr_plot_color_advanced, linewidth = 2)
+p1 = plot(enableATR and not atr_color_coding ? atr_trend_value : na, 'ATR Trend', color = atr_plot_color, linewidth = 2)
+
+// Fast Trend
+p2 = plot(enableATR ? atr_fast_trend_value : na, 'Fast ATR Trend', color = up_down_fast_trend == 'up' ? color(#00ffd4) : color(#e90c5e), linewidth = 1)
+
+// Channel plots
+p3 = plot(enableATR ? atr_channel_upper : na, 'Upper Channel', color = color(#00a7d1))
+p4 = plot(enableATR ? atr_channel_lower : na, 'Lower Channel', color = color(#e90c74))
+
+// DC Switch
+p5 = plot(enableATR ? atr_dc_switch_value : na, 'DC Switch', color = color(#2a95ff), linewidth = 1)
+
+// ============================================================================
+// FILLING
+// ============================================================================
+
+// Trend Filling (basic)
+fill(p99, p1, close > atr_trend_value and trend_filling and not atr_color_coding and enableATR ? color.new(#00cbff, 95) : close < atr_trend_value and trend_filling and not atr_color_coding and enableATR ? color.new(#ff0099, 95) : na, title = 'Trend Filling')
+
+// Trend Filling (advanced color coding)
+fill(p99, p0, close > atr_trend_value and trend_filling and atr_color_coding and enableATR ? color.new(#00cbff, 95) : close < atr_trend_value and trend_filling and atr_color_coding and enableATR ? color.new(#ff0099, 95) : na, title = 'Trend Filling - Advanced')
+
+// Fast Trend Filling
+fill(p00, p2, fast_fill and atr_trend_value > atr_fast_trend_value and enableATR ? color.new(#720c3b, 90) : na, 'Lower Fast Filling')
+fill(p00, p2, fast_fill and atr_trend_value < atr_fast_trend_value and enableATR ? color.new(#005e76, 90) : na, 'Upper Fast Filling')
+
+// Channel Filling (solid)
+fill(p00, p3, channel_fill and not channel_gradient and enableATR ? color.new(#00cbff, 95) : na, 'Upper Smoothed Range Channel Filling')
+fill(p00, p4, channel_fill and not channel_gradient and enableATR ? color.new(#ff0099, 95) : na, 'Lower Smoothed Range Channel Filling')
+
+// Gradient Channel Filling
+fill(p00, p3, atr_trend_value, atr_channel_upper, channel_gradient and enableATR ? color.new(#00cbff, 90) : na, na, title = 'Upper Gradient Channel Filling')
+fill(p00, p4, atr_trend_value, atr_channel_lower, channel_gradient and enableATR ? color.new(#ff0099, 85) : na, na, title = 'Lower Gradient Channel Filling')
+
+// ============================================================================
+// SIGNAL SHAPES
+// ============================================================================
+
+// Main trend signals
+plotshape(enableATR ? atr_buy_signal : na, title = 'Buy Signal', style = shape.triangleup, location = location.absolute, color = color(#00cbff), size = size.small)
+plotshape(enableATR ? atr_sell_signal : na, title = 'Sell Signal', style = shape.triangledown, location = location.absolute, color = color(#ff0099), size = size.small)
+
+// Fast trend signals
+plotshape(enableATR ? atr_buy_fast_signal : na, title = 'Buy Signal (Fast Trend)', style = shape.triangleup, location = location.absolute, color = color(#00cbff), size = size.small)
+plotshape(enableATR ? atr_sell_fast_signal : na, title = 'Sell Signal (Fast Trend)', style = shape.triangledown, location = location.absolute, color = color(#ff0099), size = size.small)
+
+// Fast trend crossover signals
+plotshape(enableATR ? atr_buy_fast_cross_signal : na, title = 'Buy Signal (Fast Crossover)', style = shape.triangleup, location = location.absolute, color = color(#00cbff), size = size.small)
+plotshape(enableATR ? atr_sell_fast_cross_signal : na, title = 'Sell Signal (Fast Crossunder)', style = shape.triangledown, location = location.absolute, color = color(#ff0099), size = size.small)
+
+// Channel breakout signals
+plotshape(enableATR ? atr_buy_channel_signal : na, title = 'Buy Signal (Channel Breakout)', style = shape.triangleup, location = location.absolute, color = color(#00cbff), size = size.small)
+plotshape(enableATR ? atr_sell_channel_signal : na, title = 'Sell Signal (Channel Breakout)', style = shape.triangledown, location = location.absolute, color = color(#ff0099), size = size.small)
+
+// ============================================================================
+// END OF ATR TREND MODULE
+// ============================================================================
+
+// ============================================================================
+// MODULE 2: MXWLL SUITE IMPLEMENTATION (PHASE 1)
+// Smart Money Concepts - Pivots, HH/HL/LH/LL, BoS/CHoCH
+// ============================================================================
+
+// ============================================================================
+// MXWLL HELPER FUNCTIONS AND ARRAYS
+// ============================================================================
+
+// Arrays to store price history (like in original mxwll)
+var array<float> highArr = array.new<float>()
+var array<float> lowArr = array.new<float>()
+var array<int> timeArr = array.new<int>()
+var array<float> closeArr = array.new<float>()
+var array<float> openArr = array.new<float>()
+var array<float> volArr = array.new<float>()
+
+// Add current bar data to arrays
+array.unshift(highArr, high)
+array.unshift(lowArr, low)
+array.unshift(timeArr, int(time))
+array.unshift(closeArr, close)
+array.unshift(openArr, open)
+array.unshift(volArr, volume)
+
+// ============================================================================
+// ROLLING TIMEFRAME TYPE AND METHODS (for Volume Dashboard)
+// ============================================================================
+
+type rollingTF
+    float highTF = 0
+    float lowTF = 1e8
+    int highTFt = 0
+    int lowTFt = 0
+    float volTF = 0
+    map<string, line> rTFdraw
+    map<string, label> rTFlabel
+
+method tfDraw(int tfDiff, bool showRollingLab, string tf, bool showLevels) =>
+    TFhrdata = rollingTF.new()
+    var volRolling = array.new<float>()
+    
+    if highArr.size() > tfDiff
+        for i = 0 to tfDiff
+            if showLevels and barstate.islast
+                getHigh = highArr.get(i)
+                getLow = lowArr.get(i)
+                getTime = timeArr.get(i)
+                
+                TFhrdata.highTF := math.max(TFhrdata.highTF, getHigh)
+                TFhrdata.lowTF := math.min(TFhrdata.lowTF, getLow)
+                
+                if TFhrdata.highTF == getHigh
+                    TFhrdata.highTFt := timeArr.get(i)
+                
+                if TFhrdata.lowTF == getLow
+                    TFhrdata.lowTFt := timeArr.get(i)
+            
+            TFhrdata.volTF += volArr.get(i)
+        
+        volRolling.push(TFhrdata.volTF)
+        
+        var lineDraw = rollingTF.new(rTFdraw = map.new<string, line>(), rTFlabel = map.new<string, label>())
+        
+        if showLevels
+            switch lineDraw.rTFdraw.size() == 0
+                true => lineDraw.rTFdraw.put("High", line.new(TFhrdata.highTFt, TFhrdata.highTF, time, TFhrdata.highTF, xloc = xloc.bar_time, color = color.aqua)), lineDraw.rTFdraw.put("Low", line.new(TFhrdata.lowTFt, TFhrdata.lowTF, time, TFhrdata.lowTF, xloc = xloc.bar_time, color = color.aqua))
+                => lineDraw.rTFdraw.get("High").set_xy1(TFhrdata.highTFt, TFhrdata.highTF), lineDraw.rTFdraw.get("High").set_xy2(time, TFhrdata.highTF), lineDraw.rTFdraw.get("Low").set_xy1(TFhrdata.lowTFt, TFhrdata.lowTF), lineDraw.rTFdraw.get("Low").set_xy2(time, TFhrdata.lowTF)
+            
+            if showRollingLab
+                switch lineDraw.rTFlabel.size() == 0
+                    true => lineDraw.rTFlabel.put("High", label.new(time, TFhrdata.highTF, xloc = xloc.bar_time, textcolor = color.aqua, text = tf + "H", size = size.tiny, style = label.style_label_left, color = #00000000)), lineDraw.rTFlabel.put("Low", label.new(time, TFhrdata.lowTF, xloc = xloc.bar_time, textcolor = color.aqua, text = tf + "L", size = size.tiny, style = label.style_label_left, color = #00000000))
+                    => lineDraw.rTFlabel.get("High").set_xy(time, TFhrdata.highTF), lineDraw.rTFlabel.get("Low").set_xy(time, TFhrdata.lowTF)
+    
+    [TFhrdata.volTF, volRolling]
+
+tfDrawLower(bool showRollingLab, simple string tf, bool showLevels) =>
+    simple int end = switch tf
+        "240" => 240
+        "1D" => 1440
+    
+    [o, h, l, c, v, t] = request.security_lower_tf(syminfo.tickerid, "1", [open, high, low, close, volume, time])
+    
+    var oArr = array.new_float()
+    var hArr = array.new_float()
+    var lArr = array.new_float()
+    var cArr = array.new_float()
+    var vArr = array.new_float()
+    var tArr = array.new_int()
+    
+    TFhrdata = rollingTF.new()
+    var volRolling = array.new<float>()
+    
+    if h.size() > 0
+        for i = 0 to h.size() - 1
+            oArr.push(o.get(i))
+            hArr.push(h.get(i))
+            lArr.push(l.get(i))
+            cArr.push(c.get(i))
+            vArr.push(v.get(i))
+            tArr.push(t.get(i))
+            
+            if hArr.size() > end
+                oArr.shift()
+                hArr.shift()
+                lArr.shift()
+                cArr.shift()
+                vArr.shift()
+                tArr.shift()
+        
+        for i = 0 to hArr.size() - 1
+            if showLevels
+                getHigh = hArr.get(i)
+                getLow = lArr.get(i)
+                getTime = tArr.get(i)
+                
+                TFhrdata.highTF := math.max(TFhrdata.highTF, getHigh)
+                TFhrdata.lowTF := math.min(TFhrdata.lowTF, getLow)
+                
+                if TFhrdata.highTF == getHigh
+                    TFhrdata.highTFt := tArr.get(i)
+                
+                if TFhrdata.lowTF == getLow
+                    TFhrdata.lowTFt := tArr.get(i)
+            
+            TFhrdata.volTF += vArr.get(i)
+        
+        volRolling.push(TFhrdata.volTF)
+        
+        var lineDraw = rollingTF.new(rTFdraw = map.new<string, line>(), rTFlabel = map.new<string, label>())
+        
+        if showLevels
+            switch lineDraw.rTFdraw.size() == 0
+                true => lineDraw.rTFdraw.put("High", line.new(TFhrdata.highTFt, TFhrdata.highTF, time, TFhrdata.highTF, xloc = xloc.bar_time, color = color.aqua)), lineDraw.rTFdraw.put("Low", line.new(TFhrdata.lowTFt, TFhrdata.lowTF, time, TFhrdata.lowTF, xloc = xloc.bar_time, color = color.aqua))
+                => lineDraw.rTFdraw.get("High").set_xy1(TFhrdata.highTFt, TFhrdata.highTF), lineDraw.rTFdraw.get("High").set_xy2(time, TFhrdata.highTF), lineDraw.rTFdraw.get("Low").set_xy1(TFhrdata.lowTFt, TFhrdata.lowTF), lineDraw.rTFdraw.get("Low").set_xy2(time, TFhrdata.lowTF)
+            
+            if showRollingLab
+                switch lineDraw.rTFlabel.size() == 0
+                    true => lineDraw.rTFlabel.put("High", label.new(time, TFhrdata.highTF, xloc = xloc.bar_time, textcolor = color.aqua, text = tf + "H", size = size.tiny, style = label.style_label_left, color = #00000000)), lineDraw.rTFlabel.put("Low", label.new(time, TFhrdata.lowTF, xloc = xloc.bar_time, textcolor = color.aqua, text = tf + "L", size = size.tiny, style = label.style_label_left, color = #00000000))
+                    => lineDraw.rTFlabel.get("High").set_xy(time, TFhrdata.highTF), lineDraw.rTFlabel.get("Low").set_xy(time, TFhrdata.lowTF)
+    
+    [TFhrdata.volTF, volRolling]
+
+// Calculate rolling timeframe bars
+var r4hrbars = math.floor(timeframe.in_seconds("240") / timeframe.in_seconds(timeframe.period))
+var rDbars = math.floor(timeframe.in_seconds("1D") / timeframe.in_seconds(timeframe.period))
+
+// Get volume data for 4H and 1D
+[vol4hr, vol4hrArr] = switch
+    timeframe.in_seconds() <= 60 => r4hrbars.tfDraw(show4hLab, "240", show4H)
+    => tfDrawLower(show4hLab, "240", show4H)
+
+[vol1D, vol1DArr] = switch
+    timeframe.in_seconds() <= 60 => rDbars.tfDraw(show1DLab, "1D", show1D)
+    => tfDrawLower(show1DLab, "1D", show1D)
+
+// Calculate Pivot Points (Swing Highs and Lows) - v6 Compatible
+calculatePivots(length) =>
+    var int intraCalc = 0
+    float topSwing = 0.0
+    float botSwing = 0.0
+    
+    if bar_index > length + 1 and array.size(highArr) > length
+        // Get highest high and lowest low in the lookback period (using slice like original)
+        up = array.max(array.slice(highArr, 0, length))
+        dn = array.min(array.slice(lowArr, 0, length))
+        
+        // Get the high and low at the center of the lookback period
+        cHi = array.get(highArr, length)
+        cLo = array.get(lowArr, length)
+        
+        // Determine current trend using switch (v6 syntax)
+        intraCalc := switch
+            cHi > up => 0
+            cLo < dn => 1
+            => intraCalc[1]
+        
+        // Detect swing high (trend changes from up to down)
+        topSwing := switch
+            intraCalc == 0 and intraCalc[1] != 0 => cHi
+            => 0.0
+        
+        // Detect swing low (trend changes from down to up)
+        botSwing := switch
+            intraCalc == 1 and intraCalc[1] != 1 => cLo
+            => 0.0
+    
+    [topSwing, botSwing]
+
+// Draw Structure Break (BoS or CHoCH)
+drawStructureBreak(x, y, txt, col, isDown) =>
+    lineStyle = line.style_dashed
+    labelStyle = isDown ? label.style_label_down : label.style_label_up
+    
+    line.new(int(x), y, bar_index, y, color = col, style = lineStyle)
+    label.new(math.round(math.avg(x, bar_index)), y, txt, color = color.new(color.white, 100), textcolor = col, style = labelStyle, size = size.small)
+
+// ============================================================================
+// MXWLL GLOBAL VARIABLES
+// ============================================================================
+
+// External Structure tracking
+var float ext_upaxis = 0.0
+var float ext_dnaxis = 0.0
+var int ext_upaxis_bar = 0
+var int ext_dnaxis_bar = 0
+var int ext_moving = 0  // 1 = up, -1 = down, 0 = neutral
+var bool ext_upside = true
+var bool ext_downside = true
+
+// Internal Structure tracking
+var float int_upaxis = 0.0
+var float int_dnaxis = 0.0
+var int int_upaxis_bar = 0
+var int int_dnaxis_bar = 0
+var int int_moving = 0
+var bool int_upside = true
+var bool int_downside = true
+
+// Label arrays for swing points
+var array<label> mxwll_upLabels = array.new<label>()
+var array<label> mxwll_dnLabels = array.new<label>()
+
+// Order Block arrays (Phase 2)
+var array<box> highBlock = array.new<box>()
+var array<box> lowBlock = array.new<box>()
+
+// ============================================================================
+// MXWLL MAIN LOGIC
+// ============================================================================
+
+if enableMxwll
+    // Calculate pivots for external and internal structure
+    [bigUpper, bigLower] = calculatePivots(extSens)
+    [smallUpper, smallLower] = calculatePivots(intSens)
+    
+    // ========================================================================
+    // EXTERNAL STRUCTURE (Major Swings)
+    // ========================================================================
+    
+    // Detect Higher High (HH) or Lower High (LH)
+    if bigUpper != 0
+        ext_upside := true
+        x1 = bar_index - extSens
+        
+        // Determine if this is a HH or LH
+        txt = bigUpper > ext_upaxis ? 'HH' : 'LH'
+        
+        // Draw label
+        if showHHLH
+            lbl = label.new(x1, bigUpper, txt, 
+                      color = color.new(color.white, 100), 
+                      textcolor = bearC, 
+                      style = label.style_label_down, 
+                      size = size.small)
+            array.push(mxwll_upLabels, lbl)
+        
+        // Draw Order Block (bearish - resistance zone)
+        if showOB
+            obBox = box.new(x1, bigUpper, last_bar_index + 5, bigUpper * 0.998, border_color = color.new(color.red, 75), bgcolor = color.new(color.red, 95))
+            array.push(highBlock, obBox)
+        
+        // Update tracking variables
+        ext_upaxis := bigUpper
+        ext_upaxis_bar := x1
+    
+    // Detect Higher Low (HL) or Lower Low (LL)
+    if bigLower != 0
+        ext_downside := true
+        x1 = bar_index - extSens
+        
+        // Determine if this is a LL or HL
+        txt = bigLower < ext_dnaxis ? "LL" : "HL"
+        
+        // Draw label
+        if showHLLL
+            lbl = label.new(x1, bigLower, txt, 
+                      color = color.new(color.white, 100), 
+                      textcolor = bullC, 
+                      style = label.style_label_up, 
+                      size = size.small)
+            array.push(mxwll_dnLabels, lbl)
+        
+        // Draw Order Block (bullish - support zone)
+        if showOB
+            obBox = box.new(x1, bigLower, last_bar_index + 5, bigLower * 1.002, border_color = color.new(color.blue, 75), bgcolor = color.new(color.blue, 95))
+            array.push(lowBlock, obBox)
+        
+        // Update tracking variables
+        ext_dnaxis := bigLower
+        ext_dnaxis_bar := x1
+    
+    // ========================================================================
+    // EXTERNAL STRUCTURE BREAKS (BoS / CHoCH)
+    // ========================================================================
+    
+    if showExt
+        // Break above previous high (Bullish BoS or CHoCH)
+        if ta.crossover(close, ext_upaxis) and ext_upside
+            structureType = ext_moving < 0 ? 'CHoCH' : 'BoS'
+            
+            // Filter by user selection
+            shouldDraw = extStru == "All" or (extStru == "BoS" and structureType == "BoS") or (extStru == "CHoCH" and structureType == "CHoCH")
+            
+            if shouldDraw
+                drawStructureBreak(ext_upaxis_bar, ext_upaxis, structureType, bullC, true)
+            
+            ext_upside := false
+            ext_moving := 1
+        
+        // Break below previous low (Bearish BoS or CHoCH)
+        if ta.crossunder(close, ext_dnaxis) and ext_downside
+            structureType = ext_moving > 0 ? 'CHoCH' : 'BoS'
+            
+            // Filter by user selection
+            shouldDraw = extStru == "All" or (extStru == "BoS" and structureType == "BoS") or (extStru == "CHoCH" and structureType == "CHoCH")
+            
+            if shouldDraw
+                drawStructureBreak(ext_dnaxis_bar, ext_dnaxis, structureType, bearC, false)
+            
+            ext_downside := false
+            ext_moving := -1
+    
+    // ========================================================================
+    // INTERNAL STRUCTURE (Minor Swings)
+    // ========================================================================
+    
+    if showInt
+        // Detect internal swing high
+        if smallUpper != 0
+            int_upside := true
+            int_upaxis := smallUpper
+            int_upaxis_bar := bar_index - intSens
+        
+        // Detect internal swing low
+        if smallLower != 0
+            int_downside := true
+            int_dnaxis := smallLower
+            int_dnaxis_bar := bar_index - intSens
+        
+        // Internal structure breaks (I-BoS / I-CHoCH)
+        if ta.crossover(close, int_upaxis) and int_upside
+            structureType = int_moving < 0 ? 'I-CHoCH' : 'I-BoS'
+            
+            shouldDraw = intStru == "All" or (intStru == "BoS" and structureType == "I-BoS") or (intStru == "CHoCH" and structureType == "I-CHoCH")
+            
+            if shouldDraw
+                drawStructureBreak(int_upaxis_bar, int_upaxis, structureType, bullC, true)
+            
+            int_upside := false
+            int_moving := 1
+        
+        if ta.crossunder(close, int_dnaxis) and int_downside
+            structureType = int_moving > 0 ? 'I-CHoCH' : 'I-BoS'
+            
+            shouldDraw = intStru == "All" or (intStru == "BoS" and structureType == "I-BoS") or (intStru == "CHoCH" and structureType == "I-CHoCH")
+            
+            if shouldDraw
+                drawStructureBreak(int_dnaxis_bar, int_dnaxis, structureType, bearC, false)
+            
+            int_downside := false
+            int_moving := -1
+
+// ============================================================================
+// ORDER BLOCKS MANAGEMENT (PHASE 2)
+// ============================================================================
+
+// Update Order Block right edge to extend to current bar
+if enableMxwll and showOB and barstate.islast
+    if array.size(highBlock) > 0
+        for i = 0 to array.size(highBlock) - 1
+            box.set_right(array.get(highBlock, i), last_bar_index + 5)
+    
+    if array.size(lowBlock) > 0
+        for i = 0 to array.size(lowBlock) - 1
+            box.set_right(array.get(lowBlock, i), last_bar_index + 5)
+
+// Clean up Order Blocks (remove when price breaks through them)
+if enableMxwll and showOB
+    // Clean high blocks (bearish OB - remove when price closes above)
+    if array.size(highBlock) > 0
+        for i = array.size(highBlock) - 1 to 0
+            currentBox = array.get(highBlock, i)
+            if close >= box.get_top(currentBox)
+                box.delete(currentBox)
+                array.remove(highBlock, i)
+        
+        // Limit number of blocks shown
+        if showLast != 0 and array.size(highBlock) > showLast
+            for i = array.size(highBlock) - showLast to 0
+                box.delete(array.get(highBlock, i))
+                array.remove(highBlock, i)
+    
+    // Clean low blocks (bullish OB - remove when price closes below)
+    if array.size(lowBlock) > 0
+        for i = array.size(lowBlock) - 1 to 0
+            currentBox = array.get(lowBlock, i)
+            if close <= box.get_bottom(currentBox)
+                box.delete(currentBox)
+                array.remove(lowBlock, i)
+        
+        // Limit number of blocks shown
+        if showLast != 0 and array.size(lowBlock) > showLast
+            for i = array.size(lowBlock) - showLast to 0
+                box.delete(array.get(lowBlock, i))
+                array.remove(lowBlock, i)
+
+// ============================================================================
+// FAIR VALUE GAPS (FVG) - PHASE 3
+// ============================================================================
+
+// FVG Detection Function using Matrix (like original)
+// Tracks last 3 candles using matrix structure
+fvg(direction) =>
+    var fvgMat = matrix.new<float>(5)
+    var fvgDrawings = array.new<box>()
+    
+    // Add current candle data: [sign, close, high, low, time]
+    fvgMat.add_col(0, array.from(math.sign(close - open), close, high, low, float(time)))
+    
+    // Keep only last 3 candles
+    if fvgMat.columns() > 3
+        fvgMat.remove_col(fvgMat.columns() - 1)
+    
+    // Check if we have 3 consecutive candles in the same direction
+    if fvgMat.row(0).sum() == direction
+        getDir = math.sign(direction)
+        
+        // Calculate gap coordinates
+        y = float(na)
+        y1 = float(na)
+        
+        if getDir == -1
+            // Bearish FVG: gap between low[2] and high[0]
+            y := fvgMat.get(3, 2)   // low of candle 2 (oldest)
+            y1 := fvgMat.get(2, 0)  // high of candle 0 (current)
+        else
+            // Bullish FVG: gap between high[0] and low[2]
+            y := fvgMat.get(3, 0)   // low of candle 0 (current)
+            y1 := fvgMat.get(2, 2)  // high of candle 2 (oldest)
+        
+        // Determine color
+        col = closeOnly ? color.new(#00000000, 100) : color.new(fvgcol, fvgtra)
+        
+        // Create FVG box (using time from middle candle)
+        fvgDrawings.push(
+            box.new(int(fvgMat.get(4, 1)), y, last_bar_time, y1, 
+                xloc = xloc.bar_time, 
+                border_color = col, 
+                bgcolor = col))
+    
+    fvgDrawings
+
+if enableMxwll and showFVG
+    // Detect bullish and bearish FVGs
+    fvgDn = fvg(-3)  // Bearish FVG
+    fvgUp = fvg(3)   // Bullish FVG
+    
+    // ========================================================================
+    // CLEAN BEARISH FVGs (filled when price moves up through them)
+    // ========================================================================
+    if fvgDn.size() > 0
+        for i = fvgDn.size() - 1 to 0
+            getfvg = fvgDn.get(i)
+            
+            // Remove if completely filled
+            if high >= getfvg.get_top()
+                getfvg.delete()
+                fvgDn.remove(i)
+            else if contract
+                // Contract (reduce) if partially filled
+                if high > getfvg.get_bottom()
+                    getfvg.set_bottom(high)
+    
+    // ========================================================================
+    // CLEAN BULLISH FVGs (filled when price moves down through them)
+    // ========================================================================
+    if fvgUp.size() > 0
+        for i = fvgUp.size() - 1 to 0
+            getfvg = fvgUp.get(i)
+            
+            // Remove if completely filled
+            if low <= getfvg.get_bottom()
+                getfvg.delete()
+                fvgUp.remove(i)
+            else if contract
+                // Contract (reduce) if partially filled
+                if low < getfvg.get_top()
+                    getfvg.set_top(low)
+    
+    // ========================================================================
+    // SHOW ONLY CLOSEST FVG (if enabled)
+    // ========================================================================
+    if closeOnly and barstate.islast
+        var minDist = matrix.new<float>(1, 2, 20e20)
+        
+        // Find closest bearish FVG
+        if fvgDn.size() > 0
+            for i = fvgDn.size() - 1 to 0
+                getBottom = fvgDn.get(i).get_bottom()
+                
+                minDist.set(0, 1, math.min(minDist.get(0, 1), math.abs(close - getBottom)))
+                
+                if math.abs(close - getBottom) == minDist.get(0, 1)
+                    minDist.set(0, 0, i)
+                
+                // Hide all FVGs initially
+                fvgDn.get(i).set_right(fvgDn.get(i).get_left())
+            
+            // Show only the closest one
+            fvgDn.get(int(minDist.get(0, 0))).set_bgcolor(color.new(fvgcol, fvgtra))
+            fvgDn.get(int(minDist.get(0, 0))).set_border_color(color.new(fvgcol, fvgtra))
+            fvgDn.get(int(minDist.get(0, 0))).set_right(last_bar_time)
+        
+        // Reset minDist for bullish FVG search
+        minDist.set(0, 0, 0)
+        minDist.set(0, 1, 20e20)
+        
+        // Find closest bullish FVG
+        if fvgUp.size() > 0
+            for i = fvgUp.size() - 1 to 0
+                getTop = fvgUp.get(i).get_top()
+                
+                minDist.set(0, 1, math.min(minDist.get(0, 1), math.abs(close - getTop)))
+                
+                if math.abs(close - getTop) == minDist.get(0, 1)
+                    minDist.set(0, 0, i)
+                
+                // Hide all FVGs initially
+                fvgUp.get(i).set_right(fvgUp.get(i).get_left())
+            
+            // Show only the closest one
+            fvgUp.get(int(minDist.get(0, 0))).set_bgcolor(color.new(fvgcol, fvgtra))
+            fvgUp.get(int(minDist.get(0, 0))).set_border_color(color.new(fvgcol, fvgtra))
+            fvgUp.get(int(minDist.get(0, 0))).set_right(last_bar_time)
+
+// ============================================================================
+// HIGH/LOW LEVELS - PHASE 5.1
+// Previous Day High/Low & 4H High/Low
+// ============================================================================
+
+// Request previous day and current day high/low from daily timeframe
+[pdHigh, pdLow, dayHigh, dayLow, pdBar, dayBar] = request.security(syminfo.tickerid, "1D", [high[1], low[1], high, low, time[1], time])
+
+// ============================================================================
+// AREA OF INTEREST (AOE) - PHASE 5.2
+// Consolidation zones based on recent 50 candles
+// ============================================================================
+
+// Draw Area of Interest function
+drawAOE() =>
+    atr = ta.atr(14)
+    
+    if enableMxwll and showAOE
+        if array.size(closeArr) > 50
+            // Get slices of last 50 candles
+            aoi = array.slice(closeArr, 0, 50)
+            aoi2 = array.slice(openArr, 0, 50)
+            
+            // Find max and min from close and open arrays
+            maxaoiH = math.max(array.max(aoi), array.max(aoi2))
+            minaoiL = math.min(array.min(aoi), array.min(aoi2))
+            
+            // Use map to store boxes (like original)
+            var aoeLevels = map.new<string, box>()
+            
+            // Create boxes first time only
+            if aoeLevels.size() == 0
+                aoeLevels.put("High", 
+                    box.new(bar_index - 50, maxaoiH + atr, bar_index + 5, maxaoiH, 
+                        border_color = color.new(color.purple, 60), 
+                        bgcolor = color.new(color.purple, 90), 
+                        text = "Area of interest", 
+                        text_size = size.small, 
+                        text_color = color.new(color.purple, 33)))
+                
+                aoeLevels.put("Low", 
+                    box.new(bar_index - 50, minaoiL, bar_index + 5, minaoiL - atr, 
+                        border_color = color.new(color.green, 60), 
+                        bgcolor = color.new(color.green, 90), 
+                        text = "Area of interest", 
+                        text_size = size.small, 
+                        text_color = color.new(color.green, 33)))
+            
+            // Update boxes on every bar
+            getHighBox = aoeLevels.get("High")
+            getLowBox = aoeLevels.get("Low")
+            
+            // Update high box
+            if close <= maxaoiH + atr
+                getHighBox.set_lefttop(bar_index - 50, maxaoiH + atr)
+                getHighBox.set_rightbottom(bar_index + 5, maxaoiH)
+                getHighBox.set_text("Area of interest")
+            else
+                // Hide box when price moves through
+                getHighBox.set_lefttop(bar_index + 5, maxaoiH + atr)
+                getHighBox.set_rightbottom(bar_index + 5, maxaoiH + atr)
+                getHighBox.set_text("")
+            
+            // Update low box
+            if close >= minaoiL - atr
+                getLowBox.set_lefttop(bar_index - 50, minaoiL)
+                getLowBox.set_rightbottom(bar_index + 5, minaoiL - atr)
+                getLowBox.set_text("Area of interest")
+            else
+                // Hide box when price moves through
+                getLowBox.set_lefttop(bar_index + 5, minaoiL)
+                getLowBox.set_rightbottom(bar_index + 5, minaoiL - atr)
+                getLowBox.set_text("")
+
+// Execute AOE drawing
+drawAOE()
+
+// ============================================================================
+// SESSION ZONES & DASHBOARD - PHASE 5.3 & 5.4 (EXACT MXWLL REPLICATION)
+// ============================================================================
+
+// Create dashboard table (global scope)
+var dashboardTable = table.new(position.top_right, 13, 13, bgcolor = #20222C, border_color = #363843, frame_color = #363843, border_width = 1, frame_width = 1)
+
+// Get NY timezone hour/minute for dashboard session detection (timenow)
+nyHour = hour(timenow, "America/New_York")
+nyMinute = minute(timenow, "America/New_York")
+
+// Function to calculate time difference between two timestamps
+calculateTimeDifference(timestamp1, timestamp2) =>
+    timeDifference = timestamp2 - timestamp1
+    hours = math.floor(timeDifference / 3600000)
+    minutes = math.floor((timeDifference % 3600000) / 60000)
+    [hours, minutes]
+
+// Day adjustment for overnight sessions
+dayAdjustment = (hour(timenow, "America/New_York") < 2) ? dayofmonth(timenow) + 1 : dayofmonth(timenow)
+dayAdjustment2 = nyHour >= 20 or nyHour < 2 ? dayofmonth(timenow) + 1 : dayofmonth(timenow)
+
+// Time range check function for dashboard (uses nyHour/nyMinute from timenow)
+timeIsInRange(startHour, startMinute, endHour, endMinute) =>
+    (nyHour > startHour or (nyHour == startHour and nyMinute >= startMinute)) and (nyHour < endHour or (nyHour == endHour and nyMinute <= endMinute))
+
+// Use switch to determine current session and times (EXACT MXWLL PATTERN)
+[chartcol, timetilchange, stringCol, stringCol2] = switch
+    timeIsInRange(9, 30, 16, 0) => [#f24968, timestamp("America/New_York", year(timenow), month(timenow), dayofmonth(timenow), 16, 0, 0), "New York", "Asia"]
+    timeIsInRange(20, 0, 2, 0) => [#14D990, timestamp("America/New_York", year(timenow), month(timenow), dayAdjustment, 2, 0, 0), "Asia", "London"]
+    timeIsInRange(3, 0, 11, 30) => [#F2B807, timestamp("America/New_York", year(timenow), month(timenow), dayofmonth(timenow), 11, 30, 0), "London", "New York"]
+    => [color.gray, int(na), "Dead Zone", (nyHour > 16 or nyHour < 3) ? "London" : (nyHour >= 11 and nyHour < 20) ? "Asia" : "New York"]
+
+// Calculate time until session close
+[hours, minutes] = calculateTimeDifference(timenow, timetilchange)
+
+// Calculate next session open time
+timetilchange2 = switch
+    timeIsInRange(9, 30, 16, 0) => timestamp("America/New_York", year(timenow), month(timenow), dayofmonth(timenow), 20, 0, 0)
+    timeIsInRange(20, 0, 2, 0) => timestamp("America/New_York", year(timenow), month(timenow), dayofmonth(timenow), 3, 0, 0)
+    timeIsInRange(3, 0, 11, 30) => timestamp("America/New_York", year(timenow), month(timenow), dayofmonth(timenow), 9, 30, 0)
+    => na
+
+if na(timetilchange2)
+    timetilchange2 := switch
+        nyHour < 9 or (nyHour == 9 and nyMinute < 30) => timestamp("America/New_York", year(timenow), month(timenow), dayofmonth(timenow), 9, 30, 0)
+        nyHour < 20 or (nyHour >= 16 and nyHour < 20) => timestamp("America/New_York", year(timenow), month(timenow), dayofmonth(timenow), 20, 0, 0)
+        nyHour < 3 or (nyHour >= 2 and nyHour < 3) => timestamp("America/New_York", year(timenow), month(timenow), dayofmonth(timenow), 3, 0, 0)
+        => na
+
+[hours2, minutes2] = calculateTimeDifference(timenow, timetilchange2)
+
+// Method to calculate volume activity using percentiles (EXACT MXWLL)
+method getActivity(array<float> id, float id2) =>
+    if id.size() > 0
+        volPerc1 = id.percentile_nearest_rank(10)
+        volPerc2 = id.percentile_nearest_rank(33)
+        volPerc3 = id.percentile_nearest_rank(50)
+        volPerc4 = id.percentile_nearest_rank(66)
+        volPerc5 = id.percentile_nearest_rank(90)
+        
+        activity = switch
+            id2 <= volPerc1 => "Very Low"
+            id2 <= volPerc2 => "Low"
+            id2 <= volPerc3 => "Average"
+            id2 <= volPerc4 => "High"
+            => "Very High"
+        
+        activity
+
+// Populate dashboard table
+if enableMxwll and showDashboard and barstate.islast
+    hr4Act = vol4hrArr.getActivity(vol4hr)
+    D1Act = vol1DArr.getActivity(vol1D)
+    
+    // Populate table cells (EXACT MXWLL FORMAT)
+    table.cell(dashboardTable, 0, 2, text = "Session:", text_color = color.white, text_halign = text.align_left)
+    table.cell(dashboardTable, 0, 3, text = "Session Close:", text_color = color.white, text_halign = text.align_left)
+    table.cell(dashboardTable, 0, 4, text = "Next Session:", text_color = color.white, text_halign = text.align_left)
+    table.cell(dashboardTable, 0, 5, text = "Next Session Open:", text_color = color.white, text_halign = text.align_left)
+    table.cell(dashboardTable, 0, 6, text = "4-Hr Volume:", text_color = color.white, text_halign = text.align_left)
+    table.cell(dashboardTable, 0, 7, text = "24-Hr Volume:", text_color = color.white, text_halign = text.align_left)
+    
+    table.cell(dashboardTable, 1, 2, text = stringCol, text_color = color.white)
+    table.cell(dashboardTable, 1, 3, text = stringCol != "Dead Zone" ? str.tostring(hours) + "h" + str.tostring(minutes) + "m" : "Dead Zone", text_color = color.white)
+    table.cell(dashboardTable, 1, 4, text = stringCol2, text_color = color.white)
+    table.cell(dashboardTable, 1, 5, text = str.tostring(hours2) + "h:" + str.tostring(minutes2) + "m", text_color = color.white)
+    table.cell(dashboardTable, 1, 6, text = hr4Act, text_color = color.white)
+    table.cell(dashboardTable, 1, 7, text = D1Act, text_color = color.white)
+
+// ============================================================================
+// SESSION ZONES BACKGROUND COLORS (PHASE 5.3)
+// Uses separate time variables to avoid conflicts
+// ============================================================================
+
+// Get current time in NY timezone for bgcolor (uses time, not timenow)
+nyHour2 = hour(time, "America/New_York")
+nyMinute2 = minute(time, "America/New_York")
+
+// Session detection function for bgcolor (EXACT MXWLL PATTERN)
+timeIsInRange2(startHour, startMinute, endHour, endMinute) =>
+    if endHour >= startHour
+        (nyHour2 > startHour or (nyHour2 == startHour and nyMinute2 >= startMinute)) and (nyHour2 < endHour or (nyHour2 == endHour and nyMinute2 <= endMinute))
+    else
+        (nyHour2 > startHour or (nyHour2 == startHour and nyMinute2 >= startMinute)) or (nyHour2 < endHour or (nyHour2 == endHour and nyMinute2 <= endMinute))
+
+// Apply session background colors (must be in global scope)
+bgcolor(enableMxwll and showSessions and timeIsInRange2(9, 30, 16, 0) ? color.new(nyCol, traSession) : na)
+bgcolor(enableMxwll and showSessions and timeIsInRange2(20, 0, 2, 0) ? color.new(asCol, traSession) : na)
+bgcolor(enableMxwll and showSessions and timeIsInRange2(3, 0, 11, 30) ? color.new(loCol, traSession) : na)
+
+// ============================================================================
+// AUTO FIBONACCI - PHASE 4
+// ============================================================================
+
+// Global variable for main Fibonacci line
+var line fibMainLine = line.new(bar_index, 0, bar_index, 0, xloc = xloc.bar_index, style = line.style_dashed, width = 2)
+
+// Update main Fibonacci line continuously
+updateFibMain() =>
+    hi = 0.0
+    lo = 1e8
+    
+    if enableMxwll and showFibs
+        [bigUpperFibs, bigLowerFibs] = calculatePivots(25)
+        
+        var int counterFibs = 0
+        
+        if bigUpperFibs != 0
+            counterFibs := 1
+        
+        if bigLowerFibs != 0
+            counterFibs := -1
+        
+        if counterFibs == 1
+            // counterFibs == 1: Recent upper pivot detected
+            // Draw from last major HIGH (upaxis) to LOWEST LOW since then
+            hi := 0.0
+            
+            fibMainLine.set_xy1(ext_upaxis_bar, ext_upaxis)
+            
+            // Search from index 0 (current) to the bar where last high was detected
+            if bar_index >= ext_dnaxis_bar
+                for i = 0 to bar_index - ext_dnaxis_bar
+                    if i < array.size(lowArr)
+                        getLow = array.get(lowArr, i)
+                        lo := math.min(getLow, lo)
+                        
+                        if lo == getLow
+                            fibMainLine.set_xy2(bar_index - i, lo)
+        
+        else if counterFibs == -1
+            // counterFibs == -1: Recent lower pivot detected
+            // Draw from last major LOW (dnaxis) to HIGHEST HIGH since then
+            lo := 1e8
+            
+            fibMainLine.set_xy1(ext_dnaxis_bar, ext_dnaxis)
+            
+            // Search from index 0 (current) to the bar where last low was detected
+            if bar_index >= ext_upaxis_bar
+                for i = 0 to bar_index - ext_upaxis_bar
+                    if i < array.size(highArr)
+                        getHigh = array.get(highArr, i)
+                        hi := math.max(getHigh, hi)
+                        
+                        if hi == getHigh
+                            fibMainLine.set_xy2(bar_index - i, hi)
+        
+        if fibMainLine.get_x2() < fibMainLine.get_x1()
+            x2 = fibMainLine.get_x2()
+            x1 = fibMainLine.get_x1()
+            y2 = fibMainLine.get_y2()
+            y1 = fibMainLine.get_y1()
+            fibMainLine.set_xy2(x1, y1)
+            fibMainLine.set_xy1(x2, y2)
+        
+        if fibMainLine.get_y2() < fibMainLine.get_y1()
+            fibMainLine.set_color(bearC)
+        else
+            fibMainLine.set_color(bullC)
+    0
+
+// Quick line helper function
+quickLine(getX2, y, col) =>
+    line.new(getX2, y, bar_index + 5, y, xloc = xloc.bar_index, color = color.new(col, 75))
+
+// Quick label helper function
+quickLabel(y, txt, col) =>
+    label.new(bar_index + 5, y, text = str.tostring(txt), xloc = xloc.bar_index, color = color.new(color.white, 100), style = label.style_label_left, textcolor = col, size = size.tiny)
+
+// Draw Fibonacci retracement levels
+drawFibs() =>
+    if enableMxwll and barstate.islast
+        var fibLine = array.new<line>(5)
+        var fibLab = array.new<label>(5)
+        
+        if fibLine.size() > 0
+            for i = 0 to fibLine.size() - 1
+                fibLine.get(i).delete()
+                fibLab.get(i).delete()
+        
+        if showFibs
+            getY2 = fibMainLine.get_y2()
+            sub = fibMainLine.get_y1() - getY2
+            getX1 = fibMainLine.get_x1()
+            getX2 = fibMainLine.get_x2()
+            
+            for i = 0 to fibLine.size() - 1
+                mod = i % fibLine.size()
+                
+                y = float(na)
+                col = color.white
+                txt = float(na)
+                
+                if mod == 0
+                    y := sub * fib1 + getY2
+                    col := show236 ? fib1col : color.new(chart.bg_color, 100)
+                    txt := fib1
+                else if mod == 1
+                    y := sub * fib2 + getY2
+                    col := show382 ? fib2col : color.new(chart.bg_color, 100)
+                    txt := fib2
+                else if mod == 2
+                    y := sub * fib3 + getY2
+                    col := show5 ? fib3col : color.new(chart.bg_color, 100)
+                    txt := fib3
+                else if mod == 3
+                    y := sub * fib4 + getY2
+                    col := show618 ? fib4col : color.new(chart.bg_color, 100)
+                    txt := fib4
+                else
+                    y := sub * fib5 + getY2
+                    col := show786 ? fib5col : color.new(chart.bg_color, 100)
+                    txt := fib5
+                
+                fibLine.set(i, quickLine(getX2, y, col))
+                fibLab.set(i, quickLabel(y, txt, col))
+
+// Execute Fibonacci updates
+updateFibMain()
+drawFibs()
+
+// ============================================================================
+// END OF MXWLL SUITE MODULE (PHASE 1, 2, 3, 4, 5.1, 5.2, 5.3 & 5.4)
+// ============================================================================
+
+// ============================================================================
+// MODULE 3: DIVERGENCE DETECTION IMPLEMENTATION (PHASE 6)
+// ============================================================================
+
+// Declare pivot variables at global scope
+float div_ph = na
+float div_pl = na
+
+// Declare indicator variables at global scope
+var float div_rsi = na
+var float div_macd = na
+var float div_signal = na
+var float div_deltamacd = na
+var float div_moment = na
+var float div_cci = na
+var float div_Obv = na
+var float div_stk = na
+var float div_vwmacd = na
+var float div_cmf = na
+var float div_Mfi = na
+
+// Declare pivot arrays at global scope
+var div_maxarraysize = 20
+var div_ph_positions = array.new<int>(20, 0)
+var div_pl_positions = array.new<int>(20, 0)
+var div_ph_vals = array.new<float>(20, 0.0)
+var div_pl_vals = array.new<float>(20, 0.0)
+
+if enableDivergence
+    // ========================================================================
+    // PHASE 6.1: LINE STYLES SETUP
+    // ========================================================================
+    
+    var div_reg_div_l_style = div_reg_div_l_style_ == "Solid" ? line.style_solid : div_reg_div_l_style_ == "Dashed" ? line.style_dashed : line.style_dotted
+    var div_hid_div_l_style = div_hid_div_l_style_ == "Solid" ? line.style_solid : div_hid_div_l_style_ == "Dashed" ? line.style_dashed : line.style_dotted
+    
+    // ========================================================================
+    // PHASE 6.2: CALCULATE INDICATORS
+    // ========================================================================
+    
+    div_rsi := ta.rsi(close, 14)
+    [_macd, _signal, _deltamacd] = ta.macd(close, 12, 26, 9)
+    div_macd := _macd
+    div_signal := _signal
+    div_deltamacd := _deltamacd
+    div_moment := ta.mom(close, 10)
+    div_cci := ta.cci(close, 10)
+    div_Obv := ta.obv
+    div_stk := ta.sma(ta.stoch(close, high, low, 14), 3)
+    div_maFast = ta.vwma(close, 12)
+    div_maSlow = ta.vwma(close, 26)
+    div_vwmacd := div_maFast - div_maSlow
+    div_Cmfm = ((close - low) - (high - close)) / (high - low)
+    div_Cmfv = div_Cmfm * volume
+    div_cmf := ta.sma(div_Cmfv, 21) / ta.sma(volume, 21)
+    div_Mfi := ta.mfi(close, 14)
+    
+    // ========================================================================
+    // PHASE 6.2: INDICATOR NAMES AND COLORS ARRAYS
+    // ========================================================================
+    
+    var div_indicators_name = array.new<string>(11)
+    var div_colors_array = array.new<color>(4)
+    
+    if barstate.isfirst
+        // Indicator names
+        array.set(div_indicators_name, 0, div_showindis == "Full" ? "MACD" : "M")
+        array.set(div_indicators_name, 1, div_showindis == "Full" ? "Hist" : "H")
+        array.set(div_indicators_name, 2, div_showindis == "Full" ? "RSI" : "E")
+        array.set(div_indicators_name, 3, div_showindis == "Full" ? "Stoch" : "S")
+        array.set(div_indicators_name, 4, div_showindis == "Full" ? "CCI" : "C")
+        array.set(div_indicators_name, 5, div_showindis == "Full" ? "MOM" : "M")
+        array.set(div_indicators_name, 6, div_showindis == "Full" ? "OBV" : "O")
+        array.set(div_indicators_name, 7, div_showindis == "Full" ? "VWMACD" : "V")
+        array.set(div_indicators_name, 8, div_showindis == "Full" ? "CMF" : "C")
+        array.set(div_indicators_name, 9, div_showindis == "Full" ? "MFI" : "M")
+        array.set(div_indicators_name, 10, div_showindis == "Full" ? "Extrn" : "X")
+        
+        // Divergence colors
+        array.set(div_colors_array, 0, div_pos_reg_div_col)
+        array.set(div_colors_array, 1, div_neg_reg_div_col)
+        array.set(div_colors_array, 2, div_pos_hid_div_col)
+        array.set(div_colors_array, 3, div_neg_hid_div_col)
+    
+    // ========================================================================
+    // PHASE 6.3: PIVOT DETECTION SYSTEM
+    // ========================================================================
+    
+    // Determine source for pivots
+    div_ph_source = div_source == "Close" ? close : high
+    div_pl_source = div_source == "Close" ? close : low
+    
+    // Detect Pivot Highs and Pivot Lows
+    div_ph := ta.pivothigh(div_ph_source, div_prd, div_prd)
+    div_pl := ta.pivotlow(div_pl_source, div_prd, div_prd)
+    
+    // Add Pivot Highs to arrays
+    if not na(div_ph)
+        array.unshift(div_ph_positions, bar_index)
+        array.unshift(div_ph_vals, div_ph)
+        if array.size(div_ph_positions) > div_maxarraysize
+            array.pop(div_ph_positions)
+            array.pop(div_ph_vals)
+    
+    // Add Pivot Lows to arrays
+    if not na(div_pl)
+        array.unshift(div_pl_positions, bar_index)
+        array.unshift(div_pl_vals, div_pl)
+        if array.size(div_pl_positions) > div_maxarraysize
+            array.pop(div_pl_positions)
+            array.pop(div_pl_vals)
+
+// Show pivot points optionally (for debugging/visualization)
+plotshape(enableDivergence and not na(div_ph) and div_showpivot, text = "H", style = shape.labeldown, color = color.new(color.white, 100), textcolor = color.red, location = location.abovebar, offset = -div_prd)
+plotshape(enableDivergence and not na(div_pl) and div_showpivot, text = "L", style = shape.labelup, color = color.new(color.white, 100), textcolor = color.lime, location = location.belowbar, offset = -div_prd)
+
+// ============================================================================
+// END OF DIVERGENCE MODULE (PHASE 6.1, 6.2 & 6.3)
+// ============================================================================
+
+// ============================================================================
+// END OF TACTICAL SUITE - FULL VERSION
+// ============================================================================
