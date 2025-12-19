@@ -4,7 +4,7 @@
 // Based on ATR Trend by Daniel_Ge + Mxwll Suite by Mxwll Capital
 
 //@version=6
-indicator("Tactical Suite - Full", overlay = true, max_labels_count = 500, max_lines_count = 500, max_boxes_count = 500, max_bars_back = 500)
+indicator("Algo1.0", overlay = true, max_labels_count = 500, max_lines_count = 500, max_boxes_count = 500, max_bars_back = 500)
 
 // ============================================================================
 // MODULE 1: ATR TREND - ALL CONFIGURATIONS
@@ -1357,6 +1357,155 @@ var div_pl_positions = array.new<int>(20, 0)
 var div_ph_vals = array.new<float>(20, 0.0)
 var div_pl_vals = array.new<float>(20, 0.0)
 
+// Array to keep all divergences (11 indicators * 4 types = 44 elements)
+var div_all_divergences = array.new<int>(44, 0)
+
+// Arrays to keep lines and labels for visualization
+var pos_div_lines = array.new<line>(0)
+var neg_div_lines = array.new<line>(0)
+var pos_div_labels = array.new<label>(0)
+var neg_div_labels = array.new<label>(0)
+
+// ========================================================================
+// PHASE 6.4: DIVERGENCE DETECTION FUNCTIONS (GLOBAL SCOPE)
+// ========================================================================
+
+// Function to check positive regular or negative hidden divergence
+// cond == 1 => positive_regular, cond == 2 => negative_hidden
+div_positive_regular_positive_hidden_divergence(src, cond) =>
+    divlen = 0
+    prsc = div_source == "Close" ? close : low
+    
+    if div_dontconfirm or src > src[1] or close > close[1]
+        startpoint = div_dontconfirm ? 0 : 1
+        
+        for x = 0 to div_maxpp - 1
+            len = bar_index - array.get(div_pl_positions, x) + div_prd
+            
+            if array.get(div_pl_positions, x) == 0 or len > div_maxbars
+                break
+            
+            if len > 5 and ((cond == 1 and src[startpoint] > src[len] and prsc[startpoint] < nz(array.get(div_pl_vals, x))) or (cond == 2 and src[startpoint] < src[len] and prsc[startpoint] > nz(array.get(div_pl_vals, x))))
+                slope1 = (src[startpoint] - src[len]) / (len - startpoint)
+                virtual_line1 = src[startpoint] - slope1
+                slope2 = (close[startpoint] - close[len]) / (len - startpoint)
+                virtual_line2 = close[startpoint] - slope2
+                arrived = true
+                
+                for y = 1 + startpoint to len - 1
+                    if src[y] < virtual_line1 or nz(close[y]) < virtual_line2
+                        arrived := false
+                        break
+                    virtual_line1 := virtual_line1 - slope1
+                    virtual_line2 := virtual_line2 - slope2
+                
+                if arrived
+                    divlen := len
+                    break
+    divlen
+
+// Function to check negative regular or positive hidden divergence
+// cond == 1 => negative_regular, cond == 2 => positive_hidden
+div_negative_regular_negative_hidden_divergence(src, cond) =>
+    divlen = 0
+    prsc = div_source == "Close" ? close : high
+    
+    if div_dontconfirm or src < src[1] or close < close[1]
+        startpoint = div_dontconfirm ? 0 : 1
+        
+        for x = 0 to div_maxpp - 1
+            len = bar_index - array.get(div_ph_positions, x) + div_prd
+            
+            if array.get(div_ph_positions, x) == 0 or len > div_maxbars
+                break
+            
+            if len > 5 and ((cond == 1 and src[startpoint] < src[len] and prsc[startpoint] > nz(array.get(div_ph_vals, x))) or (cond == 2 and src[startpoint] > src[len] and prsc[startpoint] < nz(array.get(div_ph_vals, x))))
+                slope1 = (src[startpoint] - src[len]) / (len - startpoint)
+                virtual_line1 = src[startpoint] - slope1
+                slope2 = (close[startpoint] - nz(close[len])) / (len - startpoint)
+                virtual_line2 = close[startpoint] - slope2
+                arrived = true
+                
+                for y = 1 + startpoint to len - 1
+                    if src[y] > virtual_line1 or nz(close[y]) > virtual_line2
+                        arrived := false
+                        break
+                    virtual_line1 := virtual_line1 - slope1
+                    virtual_line2 := virtual_line2 - slope2
+                
+                if arrived
+                    divlen := len
+                    break
+    divlen
+
+// Calculate 4 types of divergence for each indicator
+div_calculate_divs(cond, indicator) =>
+    divs = array.new<int>(4, 0)
+    array.set(divs, 0, cond and (div_searchdiv == "Regular" or div_searchdiv == "Regular/Hidden") ? div_positive_regular_positive_hidden_divergence(indicator, 1) : 0)
+    array.set(divs, 1, cond and (div_searchdiv == "Regular" or div_searchdiv == "Regular/Hidden") ? div_negative_regular_negative_hidden_divergence(indicator, 1) : 0)
+    array.set(divs, 2, cond and (div_searchdiv == "Hidden" or div_searchdiv == "Regular/Hidden") ? div_positive_regular_positive_hidden_divergence(indicator, 2) : 0)
+    array.set(divs, 3, cond and (div_searchdiv == "Hidden" or div_searchdiv == "Regular/Hidden") ? div_negative_regular_negative_hidden_divergence(indicator, 2) : 0)
+    divs
+
+// Helper function to set divergences in main array
+div_array_set_divs(div_pointer, index) =>
+    for x = 0 to 3
+        array.set(div_all_divergences, index * 4 + x, array.get(div_pointer, x))
+
+// ========================================================================
+// PHASE 6.5: VISUALIZATION FUNCTIONS (GLOBAL SCOPE)
+// ========================================================================
+
+// Delete old positive divergence lines
+delete_old_pos_div_lines() =>
+    if array.size(pos_div_lines) > 0
+        for j = 0 to array.size(pos_div_lines) - 1
+            line.delete(array.get(pos_div_lines, j))
+        array.clear(pos_div_lines)
+
+// Delete old negative divergence lines
+delete_old_neg_div_lines() =>
+    if array.size(neg_div_lines) > 0
+        for j = 0 to array.size(neg_div_lines) - 1
+            line.delete(array.get(neg_div_lines, j))
+        array.clear(neg_div_lines)
+
+// Delete old positive divergence labels
+delete_old_pos_div_labels() =>
+    if array.size(pos_div_labels) > 0
+        for j = 0 to array.size(pos_div_labels) - 1
+            label.delete(array.get(pos_div_labels, j))
+        array.clear(pos_div_labels)
+
+// Delete old negative divergence labels
+delete_old_neg_div_labels() =>
+    if array.size(neg_div_labels) > 0
+        for j = 0 to array.size(neg_div_labels) - 1
+            label.delete(array.get(neg_div_labels, j))
+        array.clear(neg_div_labels)
+
+// Delete last created positive divergence lines and labels
+delete_last_pos_div_lines_label(n) =>
+    if n > 0 and array.size(pos_div_lines) >= n
+        asz = array.size(pos_div_lines)
+        for j = 1 to n
+            line.delete(array.get(pos_div_lines, asz - j))
+            array.pop(pos_div_lines)
+        if array.size(pos_div_labels) > 0
+            label.delete(array.get(pos_div_labels, array.size(pos_div_labels) - 1))
+            array.pop(pos_div_labels)
+
+// Delete last created negative divergence lines and labels
+delete_last_neg_div_lines_label(n) =>
+    if n > 0 and array.size(neg_div_lines) >= n
+        asz = array.size(neg_div_lines)
+        for j = 1 to n
+            line.delete(array.get(neg_div_lines, asz - j))
+            array.pop(neg_div_lines)
+        if array.size(neg_div_labels) > 0
+            label.delete(array.get(neg_div_labels, array.size(neg_div_labels) - 1))
+            array.pop(neg_div_labels)
+
 if enableDivergence
     // ========================================================================
     // PHASE 6.1: LINE STYLES SETUP
@@ -1440,13 +1589,169 @@ if enableDivergence
         if array.size(div_pl_positions) > div_maxarraysize
             array.pop(div_pl_positions)
             array.pop(div_pl_vals)
+    
+    // ========================================================================
+    // PHASE 6.4: CALCULATE DIVERGENCES FOR ALL INDICATORS
+    // ========================================================================
+    
+    // Calculate divergences for all indicators
+    div_array_set_divs(div_calculate_divs(div_calcmacd, div_macd), 0)
+    div_array_set_divs(div_calculate_divs(div_calcmacda, div_deltamacd), 1)
+    div_array_set_divs(div_calculate_divs(div_calcrsi, div_rsi), 2)
+    div_array_set_divs(div_calculate_divs(div_calcstoc, div_stk), 3)
+    div_array_set_divs(div_calculate_divs(div_calccci, div_cci), 4)
+    div_array_set_divs(div_calculate_divs(div_calcmom, div_moment), 5)
+    div_array_set_divs(div_calculate_divs(div_calcobv, div_Obv), 6)
+    div_array_set_divs(div_calculate_divs(div_calcvwmacd, div_vwmacd), 7)
+    div_array_set_divs(div_calculate_divs(div_calccmf, div_cmf), 8)
+    div_array_set_divs(div_calculate_divs(div_calcmfi, div_Mfi), 9)
+    div_array_set_divs(div_calculate_divs(false, close), 10)  // External indicator disabled for now
+    
+    // Check minimum number of divergences
+    div_total_div = 0
+    for x = 0 to array.size(div_all_divergences) - 1
+        div_total_div := div_total_div + math.round(math.sign(array.get(div_all_divergences, x)))
+    
+    if div_total_div < div_showlimit
+        array.fill(div_all_divergences, 0)
+    
+    // ========================================================================
+    // PHASE 6.5: DIVERGENCE VISUALIZATION
+    // ========================================================================
+    
+    // Variables for tracking last divergences
+    var last_pos_div_lines = 0
+    var last_neg_div_lines = 0
+    var remove_last_pos_divs = false
+    var remove_last_neg_divs = false
+    
+    // Reset tracking when new pivot detected
+    if not na(div_pl)
+        remove_last_pos_divs := false
+        last_pos_div_lines := 0
+    if not na(div_ph)
+        remove_last_neg_divs := false
+        last_neg_div_lines := 0
+    
+    // Variables for labels
+    divergence_text_top = ""
+    divergence_text_bottom = ""
+    distances = array.new<int>(0)
+    dnumdiv_top = 0
+    dnumdiv_bottom = 0
+    top_label_col = color.white
+    bottom_label_col = color.white
+    old_pos_divs_can_be_removed = true
+    old_neg_divs_can_be_removed = true
+    startpoint = div_dontconfirm ? 0 : 1
+    
+    // Loop through all indicators to draw divergences
+    for x = 0 to 10
+        div_type = -1
+        for y = 0 to 3
+            if array.get(div_all_divergences, x * 4 + y) > 0  // Any divergence detected?
+                div_type := y
+                
+                // Count divergences and set label colors
+                if (y % 2) == 1  // Negative divergence (index 1 or 3)
+                    dnumdiv_top := dnumdiv_top + 1
+                    top_label_col := array.get(div_colors_array, y)
+                if (y % 2) == 0  // Positive divergence (index 0 or 2)
+                    dnumdiv_bottom := dnumdiv_bottom + 1
+                    bottom_label_col := array.get(div_colors_array, y)
+                
+                // Check if line for this distance already exists
+                if not array.includes(distances, array.get(div_all_divergences, x * 4 + y))
+                    array.push(distances, array.get(div_all_divergences, x * 4 + y))
+                    
+                    // Create divergence line if enabled
+                    new_line = div_showlines ? line.new(
+                         x1 = bar_index - array.get(div_all_divergences, x * 4 + y),
+                         y1 = (div_source == "Close" ? close[array.get(div_all_divergences, x * 4 + y)] : 
+                              (y % 2) == 0 ? low[array.get(div_all_divergences, x * 4 + y)] : 
+                              high[array.get(div_all_divergences, x * 4 + y)]),
+                         x2 = bar_index - startpoint,
+                         y2 = (div_source == "Close" ? close[startpoint] : 
+                              (y % 2) == 0 ? low[startpoint] : 
+                              high[startpoint]),
+                         color = array.get(div_colors_array, y),
+                         style = y < 2 ? div_reg_div_l_style : div_hid_div_l_style,
+                         width = y < 2 ? div_reg_div_l_width : div_hid_div_l_width
+                         ) : na
+                    
+                    // Handle positive divergences (bottom)
+                    if (y % 2) == 0
+                        if old_pos_divs_can_be_removed
+                            old_pos_divs_can_be_removed := false
+                            if not div_showlast and remove_last_pos_divs
+                                delete_last_pos_div_lines_label(last_pos_div_lines)
+                                last_pos_div_lines := 0
+                            if div_showlast
+                                delete_old_pos_div_lines()
+                        array.push(pos_div_lines, new_line)
+                        last_pos_div_lines := last_pos_div_lines + 1
+                        remove_last_pos_divs := true
+                    
+                    // Handle negative divergences (top)
+                    if (y % 2) == 1
+                        if old_neg_divs_can_be_removed
+                            old_neg_divs_can_be_removed := false
+                            if not div_showlast and remove_last_neg_divs
+                                delete_last_neg_div_lines_label(last_neg_div_lines)
+                                last_neg_div_lines := 0
+                            if div_showlast
+                                delete_old_neg_div_lines()
+                        array.push(neg_div_lines, new_line)
+                        last_neg_div_lines := last_neg_div_lines + 1
+                        remove_last_neg_divs := true
+        
+        // Build text for labels
+        if div_type >= 0
+            divergence_text_top := divergence_text_top + ((div_type % 2) == 1 ? (div_showindis != "Don't Show" ? array.get(div_indicators_name, x) + "\n" : "") : "")
+            divergence_text_bottom := divergence_text_bottom + ((div_type % 2) == 0 ? (div_showindis != "Don't Show" ? array.get(div_indicators_name, x) + "\n" : "") : "")
+    
+    // Draw labels
+    if div_showindis != "Don't Show" or div_shownum
+        // Add divergence count to labels if enabled
+        if div_shownum and dnumdiv_top > 0
+            divergence_text_top := divergence_text_top + str.tostring(dnumdiv_top)
+        if div_shownum and dnumdiv_bottom > 0
+            divergence_text_bottom := divergence_text_bottom + str.tostring(dnumdiv_bottom)
+        
+        // Create top label (negative divergences)
+        if divergence_text_top != ""
+            if div_showlast
+                delete_old_neg_div_labels()
+            array.push(neg_div_labels, 
+                 label.new(
+                     x = bar_index,
+                     y = math.max(high, high[1]),
+                     text = divergence_text_top,
+                     color = top_label_col,
+                     textcolor = div_neg_div_text_col,
+                     style = label.style_label_down
+                     ))
+        
+        // Create bottom label (positive divergences)
+        if divergence_text_bottom != ""
+            if div_showlast
+                delete_old_pos_div_labels()
+            array.push(pos_div_labels, 
+                 label.new(
+                     x = bar_index,
+                     y = math.min(low, low[1]),
+                     text = divergence_text_bottom,
+                     color = bottom_label_col,
+                     textcolor = div_pos_div_text_col,
+                     style = label.style_label_up
+                     ))
 
 // Show pivot points optionally (for debugging/visualization)
 plotshape(enableDivergence and not na(div_ph) and div_showpivot, text = "H", style = shape.labeldown, color = color.new(color.white, 100), textcolor = color.red, location = location.abovebar, offset = -div_prd)
 plotshape(enableDivergence and not na(div_pl) and div_showpivot, text = "L", style = shape.labelup, color = color.new(color.white, 100), textcolor = color.lime, location = location.belowbar, offset = -div_prd)
 
 // ============================================================================
-// END OF DIVERGENCE MODULE (PHASE 6.1, 6.2 & 6.3)
+// END OF DIVERGENCE MODULE (PHASE 6.1, 6.2, 6.3, 6.4 & 6.5)
 // ============================================================================
 
 // ============================================================================
