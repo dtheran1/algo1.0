@@ -164,6 +164,27 @@ div_reg_div_l_width = input.int(defval = 2, title = "Regular Line Width", minval
 div_hid_div_l_width = input.int(defval = 1, title = "Hidden Line Width", minval = 1, maxval = 5, group = "Divergence: Line Style")
 
 // ============================================================================
+// MODULE 4: RSI DASHBOARD
+// ============================================================================
+
+// Enable/Disable RSI Dashboard (Phase 7.1)
+enableRSIDashboard = input.bool(defval = true, title = "Show RSI Dashboard", group = "═══ RSI DASHBOARD ═══")
+rsi_position = input.string(defval = "Top Right", title = "Dashboard Position", options = ["Top Left", "Top Center", "Top Right", "Middle Left", "Middle Center", "Middle Right", "Bottom Left", "Bottom Center", "Bottom Right"], group = "RSI Dashboard: Settings")
+rsi_size = input.string(defval = "Normal", title = "Dashboard Size", options = ["Auto", "Tiny", "Small", "Normal", "Large", "Huge"], group = "RSI Dashboard: Settings")
+rsi_text_size = input.string(defval = "Normal", title = "Text Size", options = ["Auto", "Tiny", "Small", "Normal", "Large", "Huge"], group = "RSI Dashboard: Settings")
+
+// RSI Levels
+rsi_overbought = input.int(defval = 70, title = "Overbought Level", minval = 50, maxval = 100, group = "RSI Dashboard: Levels")
+rsi_oversold = input.int(defval = 30, title = "Oversold Level", minval = 0, maxval = 50, group = "RSI Dashboard: Levels")
+
+// Colors
+rsi_bg_color = input.color(defval = color.new(color.black, 20), title = "Background Color", group = "RSI Dashboard: Colors")
+rsi_text_color = input.color(defval = color.white, title = "Text Color", group = "RSI Dashboard: Colors")
+rsi_oversold_color = input.color(defval = color.lime, title = "Oversold Color", group = "RSI Dashboard: Colors")
+rsi_neutral_color = input.color(defval = color.gray, title = "Neutral Color", group = "RSI Dashboard: Colors")
+rsi_overbought_color = input.color(defval = color.red, title = "Overbought Color", group = "RSI Dashboard: Colors")
+
+// ============================================================================
 // ATR TREND IMPLEMENTATION
 // ============================================================================
 
@@ -1752,6 +1773,93 @@ plotshape(enableDivergence and not na(div_pl) and div_showpivot, text = "L", sty
 
 // ============================================================================
 // END OF DIVERGENCE MODULE (PHASE 6.1, 6.2, 6.3, 6.4 & 6.5)
+// ============================================================================
+
+// ============================================================================
+// MODULE 4: RSI DASHBOARD IMPLEMENTATION (PHASE 7.1)
+// ============================================================================
+
+if enableRSIDashboard
+    // Convert position string to table position
+    rsi_table_position = rsi_position == "Top Left" ? position.top_left : 
+         rsi_position == "Top Center" ? position.top_center : 
+         rsi_position == "Top Right" ? position.top_right :
+         rsi_position == "Middle Left" ? position.middle_left :
+         rsi_position == "Middle Center" ? position.middle_center :
+         rsi_position == "Middle Right" ? position.middle_right :
+         rsi_position == "Bottom Left" ? position.bottom_left :
+         rsi_position == "Bottom Center" ? position.bottom_center :
+         position.bottom_right
+    
+    // Convert size strings
+    rsi_table_size = rsi_size == "Auto" ? size.auto :
+         rsi_size == "Tiny" ? size.tiny :
+         rsi_size == "Small" ? size.small :
+         rsi_size == "Normal" ? size.normal :
+         rsi_size == "Large" ? size.large :
+         size.huge
+    
+    rsi_text_size_val = rsi_text_size == "Auto" ? size.auto :
+         rsi_text_size == "Tiny" ? size.tiny :
+         rsi_text_size == "Small" ? size.small :
+         rsi_text_size == "Normal" ? size.normal :
+         rsi_text_size == "Large" ? size.large :
+         size.huge
+    
+    // Get current RSI value (already calculated in divergence module)
+    current_rsi = div_rsi
+    
+    // Determine RSI status and color
+    rsi_status = current_rsi >= rsi_overbought ? "OVERBOUGHT" : 
+         current_rsi <= rsi_oversold ? "OVERSOLD" : 
+         "NEUTRAL"
+    
+    rsi_status_color = current_rsi >= rsi_overbought ? rsi_overbought_color : 
+         current_rsi <= rsi_oversold ? rsi_oversold_color : 
+         rsi_neutral_color
+    
+    // Check if there are active RSI divergences (index 2 in divergences array = RSI)
+    rsi_has_bull_reg = array.get(div_all_divergences, 2 * 4 + 0) > 0
+    rsi_has_bear_reg = array.get(div_all_divergences, 2 * 4 + 1) > 0
+    rsi_has_bull_hid = array.get(div_all_divergences, 2 * 4 + 2) > 0
+    rsi_has_bear_hid = array.get(div_all_divergences, 2 * 4 + 3) > 0
+    
+    rsi_divergence_text = ""
+    if rsi_has_bull_reg
+        rsi_divergence_text := rsi_divergence_text + "🟢 Bull Reg\n"
+    if rsi_has_bear_reg
+        rsi_divergence_text := rsi_divergence_text + "🔴 Bear Reg\n"
+    if rsi_has_bull_hid
+        rsi_divergence_text := rsi_divergence_text + "🟩 Bull Hid\n"
+    if rsi_has_bear_hid
+        rsi_divergence_text := rsi_divergence_text + "🟥 Bear Hid\n"
+    
+    if rsi_divergence_text == ""
+        rsi_divergence_text := "No Divergence"
+    
+    // Create table
+    var rsi_table = table.new(rsi_table_position, 2, 4, bgcolor = rsi_bg_color, frame_width = 2, frame_color = rsi_status_color, border_width = 1, border_color = rsi_status_color)
+    
+    // Update table content on each bar
+    if barstate.islast
+        // Header
+        table.cell(rsi_table, 0, 0, "RSI", text_color = rsi_text_color, bgcolor = rsi_bg_color, text_size = rsi_text_size_val)
+        table.cell(rsi_table, 1, 0, str.tostring(math.round(current_rsi, 2)), text_color = rsi_status_color, bgcolor = rsi_bg_color, text_size = rsi_text_size_val)
+        
+        // Status
+        table.cell(rsi_table, 0, 1, "Status", text_color = rsi_text_color, bgcolor = rsi_bg_color, text_size = rsi_text_size_val)
+        table.cell(rsi_table, 1, 1, rsi_status, text_color = rsi_status_color, bgcolor = rsi_bg_color, text_size = rsi_text_size_val)
+        
+        // Levels
+        table.cell(rsi_table, 0, 2, "Levels", text_color = rsi_text_color, bgcolor = rsi_bg_color, text_size = rsi_text_size_val)
+        table.cell(rsi_table, 1, 2, str.tostring(rsi_oversold) + " / " + str.tostring(rsi_overbought), text_color = rsi_text_color, bgcolor = rsi_bg_color, text_size = rsi_text_size_val)
+        
+        // Divergences
+        table.cell(rsi_table, 0, 3, "Divergence", text_color = rsi_text_color, bgcolor = rsi_bg_color, text_size = rsi_text_size_val)
+        table.cell(rsi_table, 1, 3, rsi_divergence_text, text_color = rsi_text_color, bgcolor = rsi_bg_color, text_size = rsi_text_size_val)
+
+// ============================================================================
+// END OF RSI DASHBOARD MODULE (PHASE 7.1)
 // ============================================================================
 
 // ============================================================================
