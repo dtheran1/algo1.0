@@ -14,13 +14,13 @@ enableATR = input.bool(defval = true, title = "Enable ATR Trend", group = "═�
 // Source Settings
 atr_src = input.source(close, 'Source', group = 'ATR: Source Settings', tooltip = 'Source for ATR calculation')
 atr_src_hl = input.bool(true, 'Use Highest High & Lowest Low', group = 'ATR: Source Settings', tooltip = 'Use highest high & lowest low as source. Default is active. If unchecked the highest high & lowest low of \'Source\' will be used. This setting has a low - medium impact on trend calculation.')
-atr_length = input.int(10, 'Time Period', minval = 1, group = 'ATR: Source Settings', tooltip = 'The time period used to calculate ATR trend. Default is 10. This setting has a low - medium impact on trend calculation.')
+atr_length = input.int(1, 'Time Period', minval = 1, group = 'ATR: Source Settings', tooltip = 'The time period used to calculate ATR trend. Default is 10. This setting has a low - medium impact on trend calculation.')
 
 // ATR Type and Settings
-atr_type = input.string('Classic ATR (RMA)', 'ATR Type', options = ['Classic ATR (RMA)', 'Linear Regression (LSMA)', 'Ehlers Super Smoother', 'Optimum Elliptic Filter', 'Butterworth 2 Pole', 'Hann', 'SMA', 'EMA', 'WMA', 'HMA'], group = 'ATR: Average True Range', tooltip = 'Moving average used to calculate ATR. Default is \'Classic RMA\' which uses the native ATR function. This setting has a medium impact on ATR trend calculation and is mostly for finetuning.')
-atr_multi = input.float(2.0, 'ATR Weight', minval = 0.05, step = 0.05, group = 'ATR: Average True Range', tooltip = 'Default is 2. Higher values provide less false signals but a less \'sensitive\' trend. Lower values provide more signals but also more false signals. This setting has a high impact on ATR trend calculation.')
-fast_atr_multi = input.float(0.5, 'Fast ATR Weight', minval = -5.00, step = 0.05, group = 'ATR: Average True Range', tooltip = 'Default is 0.5. Only used when \'Show Fast Trend\' is active. Usually the same value as \'ATR Weight\' but can be adjusted for finetuning')
-show_fast = input.bool(false, 'Show Fast Trend', group = 'ATR: Average True Range', tooltip = 'Plots an additional trendline which uses the \'fast ATR Weight\' value.')
+atr_type = input.string('HMA', 'ATR Type', options = ['Classic ATR (RMA)', 'Linear Regression (LSMA)', 'Ehlers Super Smoother', 'Optimum Elliptic Filter', 'Butterworth 2 Pole', 'Hann', 'SMA', 'EMA', 'WMA', 'HMA'], group = 'ATR: Average True Range', tooltip = 'Moving average used to calculate ATR. Default is \'HMA\'. This setting has a medium impact on ATR trend calculation and is mostly for finetuning.')
+atr_multi = input.float(9.0, 'ATR Weight', minval = 0.05, step = 0.05, group = 'ATR: Average True Range', tooltip = 'Default is 9. Higher values provide less false signals but a less \'sensitive\' trend. Lower values provide more signals but also more false signals. This setting has a high impact on ATR trend calculation.')
+fast_atr_multi = input.float(2.0, 'Fast ATR Weight', minval = -5.00, step = 0.05, group = 'ATR: Average True Range', tooltip = 'Default is 2. Only used when \'Show Fast Trend\' is active. Usually the same value as \'ATR Weight\' but can be adjusted for finetuning')
+show_fast = input.bool(true, 'Show Fast Trend', group = 'ATR: Average True Range', tooltip = 'Plots an additional trendline which uses the \'fast ATR Weight\' value.')
 show_dc_switch = input.bool(false, 'Show DC Switch', group = 'ATR: Average True Range', tooltip = 'Plots the switch between upper/lower donchain channels (as used in Turtle Trade Channels). This setting is optional but can help to identify early trend changes.')
 
 // Smoothed Range Channel
@@ -29,10 +29,10 @@ channel_length = input.int(50, 'Channel Length', minval = 2, group = 'ATR: Smoot
 channel_multi = input.float(3.0, 'Channel Multiplier', minval = 0.1, step = 0.2, group = 'ATR: Smoothed Range Channel', tooltip = 'Like BB multiplier. Default is 3.0. Increaes/Decreases channel width.')
 
 // Style Settings
-show_atr_signals = input.bool(false, 'Show Buy/Sell Signals', group = 'ATR: Style', tooltip = 'Shows a buy/sell signal when the trend changes direction. These signals are also used in the corresponding alerts.')
-atr_color_coding = input.bool(true, 'Advanced Color Coding', group = 'ATR: Style', tooltip = 'Uses a different color when the trend starts to change but the change isn\'t confirmed (yet).')
-fast_fill = input.bool(false, 'Fill Fast Trend', group = 'ATR: Style', tooltip = 'Fills the gap between both trendlines (only used when \'Show Fast Trend\' is active).')
-trend_filling = input.bool(false, 'Fill Price/Trend', group = 'ATR: Style', tooltip = 'Fills the gap between the closing price and trend line.')
+show_atr_signals = input.bool(true, 'Show Buy/Sell Signals', group = 'ATR: Style', tooltip = 'Shows a buy/sell signal when the trend changes direction. These signals are also used in the corresponding alerts.')
+atr_color_coding = input.bool(false, 'Advanced Color Coding', group = 'ATR: Style', tooltip = 'Uses a different color when the trend starts to change but the change isn\'t confirmed (yet).')
+fast_fill = input.bool(true, 'Fill Fast Trend', group = 'ATR: Style', tooltip = 'Fills the gap between both trendlines (only used when \'Show Fast Trend\' is active).')
+trend_filling = input.bool(true, 'Fill Price/Trend', group = 'ATR: Style', tooltip = 'Fills the gap between the closing price and trend line.')
 channel_fill = input.bool(false, 'Fill Smoothed Range Channel', group = 'ATR: Style', tooltip = 'Fills smoothed range channel.')
 channel_gradient = input.bool(false, 'Use Gradient Filling for Channel', group = 'ATR: Style', tooltip = 'Use Gradient Filling instead of regular filling')
 
@@ -55,8 +55,8 @@ extSens = input.int(25, "External Sensitivity", options = [10, 25, 50], group = 
 extStru = input.string(defval = "All", title = "External Structure Type", options = ["All", "BoS", "CHoCH"], group = "Mxwll: External Structure", tooltip = "BoS = Break of Structure, CHoCH = Change of Character")
 
 // Swing Labels
-showHHLH = input.bool(defval = true, title = "Show HH/LH Labels", group = "Mxwll: Swing Labels", tooltip = "Show Higher High / Lower High labels")
-showHLLL = input.bool(defval = true, title = "Show HL/LL Labels", group = "Mxwll: Swing Labels", tooltip = "Show Higher Low / Lower Low labels")
+showHHLH = input.bool(defval = false, title = "Show HH/LH Labels", group = "Mxwll: Swing Labels", tooltip = "Show Higher High / Lower High labels")
+showHLLL = input.bool(defval = false, title = "Show HL/LL Labels", group = "Mxwll: Swing Labels", tooltip = "Show Higher Low / Lower Low labels")
 
 // Internal Structure (Short-term)
 showInt = input.bool(defval = true, title = "Show Internal Structure", group = "Mxwll: Internal Structure")
@@ -130,18 +130,18 @@ div_prd = input.int(defval = 5, title = "Pivot Period", minval = 1, maxval = 50,
 div_source = input.string(defval = "Close", title = "Source for Pivot Points", options = ["Close", "High/Low"], group = "Divergence: Pivot Settings")
 
 // Divergence Type Settings (Phase 6.1)
-div_searchdiv = input.string(defval = "Regular", title = "Divergence Type", options = ["Regular", "Hidden", "Regular/Hidden"], group = "Divergence: Type")
+div_searchdiv = input.string(defval = "Regular/Hidden", title = "Divergence Type", options = ["Regular", "Hidden", "Regular/Hidden"], group = "Divergence: Type")
 div_showlimit = input.int(1, title = "Minimum Number of Divergence", minval = 1, maxval = 11, group = "Divergence: Type")
-div_maxpp = input.int(defval = 10, title = "Maximum Pivot Points to Check", minval = 1, maxval = 20, group = "Divergence: Type")
-div_maxbars = input.int(defval = 100, title = "Maximum Bars to Check", minval = 30, maxval = 200, group = "Divergence: Type")
+div_maxpp = input.int(defval = 20, title = "Maximum Pivot Points to Check", minval = 1, maxval = 20, group = "Divergence: Type")
+div_maxbars = input.int(defval = 200, title = "Maximum Bars to Check", minval = 30, maxval = 200, group = "Divergence: Type")
 
 // Display Settings (Phase 6.1)
 div_shownum = input.bool(defval = true, title = "Show Divergence Number", group = "Divergence: Display")
-div_showlast = input.bool(defval = false, title = "Show Only Last Divergence", group = "Divergence: Display")
+div_showlast = input.bool(defval = true, title = "Show Only Last Divergence", group = "Divergence: Display")
 div_dontconfirm = input.bool(defval = false, title = "Don't Wait for Confirmation", group = "Divergence: Display")
-div_showlines = input.bool(defval = true, title = "Show Divergence Lines", group = "Divergence: Display")
+div_showlines = input.bool(defval = false, title = "Show Divergence Lines", group = "Divergence: Display")
 div_showpivot = input.bool(defval = false, title = "Show Pivot Points", group = "Divergence: Display")
-div_showindis = input.string(defval = "Full", title = "Show Indicator Names", options = ["Full", "First Letter", "Don't Show"], group = "Divergence: Display")
+div_showindis = input.string(defval = "Don't Show", title = "Show Indicator Names", options = ["Full", "First Letter", "Don't Show"], group = "Divergence: Display")
 
 // Indicators to Check (Phase 6.2)
 div_calcmacd = input.bool(defval = true, title = "MACD", group = "Divergence: Indicators", inline = "ind1")
@@ -175,7 +175,7 @@ div_hid_div_l_width = input.int(defval = 1, title = "Hidden Line Width", minval 
 
 // Enable/Disable RSI Dashboard (Phase 7.1)
 enableRSIDashboard = input.bool(defval = true, title = "Show RSI Dashboard", group = "═══ RSI DASHBOARD ═══")
-rsi_position = input.string(defval = "Top Right", title = "Dashboard Position", options = ["Top Left", "Top Center", "Top Right", "Middle Left", "Middle Center", "Middle Right", "Bottom Left", "Bottom Center", "Bottom Right"], group = "RSI Dashboard: Settings")
+rsi_position = input.string(defval = "Bottom Right", title = "Dashboard Position", options = ["Top Left", "Top Center", "Top Right", "Middle Left", "Middle Center", "Middle Right", "Bottom Left", "Bottom Center", "Bottom Right"], group = "RSI Dashboard: Settings")
 rsi_size = input.string(defval = "Normal", title = "Dashboard Size", options = ["Auto", "Tiny", "Small", "Normal", "Large", "Huge"], group = "RSI Dashboard: Settings")
 rsi_text_size = input.string(defval = "Normal", title = "Text Size", options = ["Auto", "Tiny", "Small", "Normal", "Large", "Huge"], group = "RSI Dashboard: Settings")
 
