@@ -1,0 +1,231 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © MLP Tactical Bridge - Aurolo
+// Sistema de trading con tendencial dinámica y señales progresivas
+
+//@version=6
+indicator("Tactical", overlay = true, max_labels_count = 100, max_lines_count = 100)
+
+// ============================================================================
+// FASE 1: CORE - TENDENCIAL Y SEÑALES BÁSICAS
+// ============================================================================
+
+// ============================================================================
+// CONFIGURACIÓN POR TEMPORALIDAD
+// ============================================================================
+
+// Margen por temporalidad (%)
+margen_1m = input.float(0.1, "Margen 1m (%)", minval = 0, step = 0.1, group = "CONFIGURACIÓN POR TEMPORALIDAD")
+margen_3m = input.float(0.2, "Margen 3m (%)", minval = 0, step = 0.1, group = "CONFIGURACIÓN POR TEMPORALIDAD")
+margen_5m = input.float(0.3, "Margen 5m (%)", minval = 0, step = 0.1, group = "CONFIGURACIÓN POR TEMPORALIDAD")
+margen_15m = input.float(0.5, "Margen 15m (%)", minval = 0, step = 0.1, group = "CONFIGURACIÓN POR TEMPORALIDAD")
+margen_1h = input.float(1.0, "Margen 1h (%)", minval = 0, step = 0.1, group = "CONFIGURACIÓN POR TEMPORALIDAD")
+margen_2h = input.float(1.5, "Margen 2h (%)", minval = 0, step = 0.1, group = "CONFIGURACIÓN POR TEMPORALIDAD")
+margen_4h = input.float(2.0, "Margen 4h (%)", minval = 0, step = 0.1, group = "CONFIGURACIÓN POR TEMPORALIDAD")
+margen_8h = input.float(6.0, "Margen 8h (%)", minval = 0, step = 0.1, group = "CONFIGURACIÓN POR TEMPORALIDAD")
+margen_1d = input.float(10.0, "Margen 1d (%)", minval = 0, step = 0.5, group = "CONFIGURACIÓN POR TEMPORALIDAD")
+margen_1w = input.float(15.0, "Margen 1w (%)", minval = 0, step = 0.5, group = "CONFIGURACIÓN POR TEMPORALIDAD")
+margen_1M = input.float(20.0, "Margen 1M (%)", minval = 0, step = 0.5, group = "CONFIGURACIÓN POR TEMPORALIDAD")
+
+// ============================================================================
+// PARÁMETROS TENDENCIAL
+// ============================================================================
+
+showTendencial = input.bool(true, "Tendencial", group = "PARÁMETROS TENDENCIAL", inline = "tend1")
+colorWithTrend = input.bool(false, "Color with trend", group = "PARÁMETROS TENDENCIAL", inline = "tend1")
+showFill = input.bool(false, "Show fill", group = "PARÁMETROS TENDENCIAL")
+
+trendLength = input.int(45, "Longitud Tendencial", minval = 1, maxval = 500, group = "PARÁMETROS TENDENCIAL")
+trendType = input.string("HMA", "Tipo de Media", options = ["SMA", "EMA", "WMA", "HMA", "VWMA"], group = "PARÁMETROS TENDENCIAL")
+cambioMinimo = input.float(0, "Cambio mínimo para permitir nueva señal (%)", minval = 0, step = 0.1, group = "PARÁMETROS TENDENCIAL")
+
+// ============================================================================
+// COLORES TENDENCIAL
+// ============================================================================
+
+colorTendencialAlcista = input.color(#00E5FF, "Color Tendencial Alcista", group = "COLORES TENDENCIAL")
+colorTendencialBajista = input.color(#FFFFFF, "Color Tendencial Bajista", group = "COLORES TENDENCIAL")
+
+// ============================================================================
+// COLORES DE SEÑALES
+// ============================================================================
+
+colorLong3 = input.color(#00FF88, "Color señal Long 3/3", group = "COLORES DE SEÑALES")
+colorShort3 = input.color(#FF0055, "Color señal Short 3/3", group = "COLORES DE SEÑALES")
+colorLong2 = input.color(#00FF88, "Color señal Long 2/3", group = "COLORES DE SEÑALES")
+colorShort2 = input.color(#FF0055, "Color señal Short 2/3", group = "COLORES DE SEÑALES")
+tamanoSenal3 = input.string("normal", "Tamaño señales 3/3", options = ["auto", "tiny", "small", "normal", "large", "huge"], group = "COLORES DE SEÑALES")
+tamanoSenal2 = input.string("small", "Tamaño señales 2/3", options = ["auto", "tiny", "small", "normal", "large", "huge"], group = "COLORES DE SEÑALES")
+
+// ============================================================================
+// FUNCIONES HELPER
+// ============================================================================
+
+// Función HMA (Hull Moving Average)
+hma(src, length) =>
+    wma1 = ta.wma(src, length / 2)
+    wma2 = ta.wma(src, length)
+    ta.wma(2 * wma1 - wma2, math.floor(math.sqrt(length)))
+
+// Función para obtener la media según el tipo
+getMA(src, length, maType) =>
+    switch maType
+        "SMA" => ta.sma(src, length)
+        "EMA" => ta.ema(src, length)
+        "WMA" => ta.wma(src, length)
+        "HMA" => hma(src, length)
+        "VWMA" => ta.vwma(src, length)
+        => ta.sma(src, length)
+
+// Obtener margen según timeframe actual
+getMargenActual() =>
+    tf = timeframe.period
+    margen = switch
+        tf == "1" => margen_1m
+        tf == "3" => margen_3m
+        tf == "5" => margen_5m
+        tf == "15" => margen_15m
+        tf == "60" => margen_1h
+        tf == "120" => margen_2h
+        tf == "240" => margen_4h
+        tf == "480" => margen_8h
+        tf == "D" or tf == "1D" => margen_1d
+        tf == "W" or tf == "1W" => margen_1w
+        tf == "M" or tf == "1M" => margen_1M
+        => 1.0  // Default para otros timeframes
+    margen
+
+// Convertir tamaño de string a size
+getSize(sizeStr) =>
+    switch sizeStr
+        "auto" => size.auto
+        "tiny" => size.tiny
+        "small" => size.small
+        "normal" => size.normal
+        "large" => size.large
+        "huge" => size.huge
+        => size.normal
+
+// ============================================================================
+// CÁLCULO DE LA TENDENCIAL
+// ============================================================================
+
+// Calcular la media base
+baseTrend = getMA(close, trendLength, trendType)
+
+// Obtener margen actual según timeframe
+margenActual = getMargenActual()
+
+// Calcular zona de margen superior e inferior
+margenSuperior = baseTrend * (1 + margenActual / 100)
+margenInferior = baseTrend * (1 - margenActual / 100)
+
+// Determinar tendencia actual
+// Alcista: precio por encima de la tendencial
+// Bajista: precio por debajo de la tendencial
+var bool isAlcista = true
+
+if close > baseTrend
+    isAlcista := true
+else if close < baseTrend
+    isAlcista := false
+
+// Color de la tendencial según tendencia
+trendColor = colorWithTrend ? (isAlcista ? colorTendencialAlcista : colorTendencialBajista) : colorTendencialAlcista
+
+// ============================================================================
+// DETECCIÓN DE SEÑALES BÁSICAS (3/3)
+// ============================================================================
+
+// Variables para tracking de última señal
+var float ultimaSenal = 0.0
+var int barraUltimaSenal = 0
+
+// Detectar señal LONG 3/3
+// Condiciones:
+// 1. Precio cruza desde abajo hacia arriba el margen inferior
+// 2. Tendencia es alcista
+// 3. Ha pasado suficiente cambio desde última señal
+
+cambioDesdeUltima = cambioMinimo > 0 and ultimaSenal > 0 ? math.abs((close - ultimaSenal) / ultimaSenal * 100) : 100.0
+
+senalLong3 = ta.crossover(close, margenInferior) and isAlcista and cambioDesdeUltima >= cambioMinimo and (bar_index - barraUltimaSenal) > 3
+
+// Detectar señal SHORT 3/3
+// Condiciones:
+// 1. Precio cruza desde arriba hacia abajo el margen superior
+// 2. Tendencia es bajista
+// 3. Ha pasado suficiente cambio desde última señal
+
+senalShort3 = ta.crossunder(close, margenSuperior) and not isAlcista and cambioDesdeUltima >= cambioMinimo and (bar_index - barraUltimaSenal) > 3
+
+// Actualizar tracking de señales
+if senalLong3 or senalShort3
+    ultimaSenal := close
+    barraUltimaSenal := bar_index
+
+// ============================================================================
+// VISUALIZACIÓN - TENDENCIAL
+// ============================================================================
+
+// Plotear línea tendencial
+plot(showTendencial ? baseTrend : na, "Tendencial", color = trendColor, linewidth = 2)
+
+// Rellenar área entre precio y tendencial (opcional)
+pricePlot = plot(close, display = display.none)
+trendPlot = plot(showTendencial ? baseTrend : na, display = display.none)
+
+fill(pricePlot, trendPlot, color = showFill ? color.new(isAlcista ? colorTendencialAlcista : colorTendencialBajista, 95) : na, title = "Relleno Tendencial")
+
+// ============================================================================
+// VISUALIZACIÓN - SEÑALES
+// ============================================================================
+
+// Señales LONG 3/3
+if senalLong3
+    label.new(bar_index, low, text = "Long 3/3", style = label.style_label_up, color = colorLong3, textcolor = color.white, size = getSize(tamanoSenal3))
+
+// Señales SHORT 3/3
+if senalShort3
+    label.new(bar_index, high, text = "Short 3/3", style = label.style_label_down, color = colorShort3, textcolor = color.white, size = getSize(tamanoSenal3))
+
+// ============================================================================
+// ALERTAS
+// ============================================================================
+
+// Alerta para señal Long 3/3
+if senalLong3
+    alert("MLP: Señal LONG 3/3 en " + str.tostring(close, "#.##"), alert.freq_once_per_bar)
+
+// Alerta para señal Short 3/3
+if senalShort3
+    alert("MLP: Señal SHORT 3/3 en " + str.tostring(close, "#.##"), alert.freq_once_per_bar)
+
+// ============================================================================
+// INFORMACIÓN DE DEBUG (OPCIONAL)
+// ============================================================================
+
+// Mostrar información actual en tooltip
+var string tooltipText = ""
+if barstate.islast
+    tooltipText := "Timeframe: " + timeframe.period + "\n" +
+                   "Margen: " + str.tostring(margenActual, "#.##") + "%\n" +
+                   "Tendencial: " + str.tostring(baseTrend, "#.##") + "\n" +
+                   "Margen Sup: " + str.tostring(margenSuperior, "#.##") + "\n" +
+                   "Margen Inf: " + str.tostring(margenInferior, "#.##") + "\n" +
+                   "Tendencia: " + (isAlcista ? "ALCISTA" : "BAJISTA")
+
+// Plot invisible para mostrar info en tooltip
+plot(0, display = display.none, title = "Info")
+
+// ============================================================================
+// FIN FASE 1
+// ============================================================================
+// 
+// PRÓXIMAS FASES:
+// - FASE 2: WaveTrend Multi-Timeframe
+// - FASE 3: Sistema de Señales 2/3 y progresivas
+// - FASE 4: Multi TP/SL Dinámico
+// - FASE 5: Panel Informativo
+// - FASE 6: Visualización de Márgenes
+// - FASE 7: Señales de Cierre Inteligente
+// ============================================================================
