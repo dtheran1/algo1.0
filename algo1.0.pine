@@ -1869,5 +1869,202 @@ if enableRSIDashboard
 // ============================================================================
 
 // ============================================================================
+// MODULE 5: INSTITUTIONAL SWEEP DETECTION
+// Based on Sweep Institutional by algoryze
+// Adapted from v5 to v6
+// ============================================================================
+
+// Enable/Disable Sweep Detection
+enableSweep = input.bool(defval = true, title = "Enable Sweep Detection", group = "═══ SWEEP INSTITUTIONAL ═══")
+
+// Sweep Settings
+sweep_cooldownPeriod = input.int(10, title = "Cooldown Period", minval = 0, group = "Sweep: Settings", tooltip = "Minimum bars between sweep signals")
+
+// Swing Detection
+sweep_lbLeft = 20
+sweep_lbRight = 20
+sweep_showSwing = input.bool(true, title = "Show Swings?", inline = "s_1", group = "Sweep: Swing Detection")
+sweep_swingClr = input.color(color.new(color.black, 0), title = "", inline = "s_1", group = "Sweep: Swing Detection")
+
+// Bullish Sweep Style
+sweep_bullWidth = input.int(1, title = "Line Width:", group = "Sweep: Bullish Sweep")
+sweep_bullStyle = input.string("Dashed", title = "Line Style:", options = ["Solid", "Dotted", "Dashed"], group = "Sweep: Bullish Sweep")
+sweep_bullColor = input.color(color.new(color.teal, 0), title = "Bullish Color:", group = "Sweep: Bullish Sweep")
+
+// Bearish Sweep Style
+sweep_bearWidth = input.int(1, title = "Line Width:", group = "Sweep: Bearish Sweep")
+sweep_bearStyle = input.string("Dashed", title = "Line Style:", options = ["Solid", "Dotted", "Dashed"], group = "Sweep: Bearish Sweep")
+sweep_bearColor = input.color(color.new(color.maroon, 0), title = "Bearish Color:", group = "Sweep: Bearish Sweep")
+
+// ============================================================================
+// SWEEP HELPER FUNCTIONS
+// ============================================================================
+
+sweep_lineStyle(s) =>
+    if s == "Solid"
+        line.style_solid
+    else if s == "Dotted"
+        line.style_dotted
+    else
+        line.style_dashed
+
+// ============================================================================
+// SWEEP GLOBAL VARIABLES
+// ============================================================================
+
+var int sweep_bullSignalIndex = 0
+var int sweep_bearSignalIndex = 0
+
+var line sweep_bullLine = na
+var line sweep_bearLine = na
+
+var line sweep_highLine = na
+var line sweep_lowLine = na
+
+var label sweep_swingHighLbl = na
+var label sweep_swingLowLbl = na
+var label sweep_swingHighLblTxt = na
+var label sweep_swingLowLblTxt = na
+
+var float sweep_swingLowVal = na
+var float sweep_swingHighVal = na
+
+// Swing H/L Stopper variables
+var int sweep_swingLowCounter = 0
+var int sweep_swingHighCounter = 0
+var bool sweep_isSwingLowCheck = false
+var bool sweep_isSwingHighCheck = false
+var bool sweep_stopPrintingLow = false
+var bool sweep_stopPrintingHigh = false
+
+// Label arrays
+var array<label> sweep_swingHighArr = array.new<label>(0)
+var array<label> sweep_swingHighTextArr = array.new<label>(0)
+var array<label> sweep_swingLowArr = array.new<label>(0)
+var array<label> sweep_swingLowTextArr = array.new<label>(0)
+
+// ============================================================================
+// SWEEP MAIN CALCULATIONS
+// ============================================================================
+
+// Calculate Pivot Points (must be at global scope)
+sweep_pLow = ta.pivotlow(low, sweep_lbLeft, sweep_lbRight)
+sweep_pHigh = ta.pivothigh(high, sweep_lbLeft, sweep_lbRight)
+
+sweep_pLowVal = ta.valuewhen(not na(sweep_pLow), low[sweep_lbRight], 0) 
+sweep_pHighVal = ta.valuewhen(not na(sweep_pHigh), high[sweep_lbRight], 0)
+
+sweep_prevLowIndex = ta.valuewhen(not na(sweep_pLow), bar_index[sweep_lbRight], 0)
+sweep_prevHighIndex = ta.valuewhen(not na(sweep_pHigh), bar_index[sweep_lbRight], 0)
+
+sweep_lp = ta.lowest(low, sweep_lbLeft)
+sweep_hp = ta.highest(high, sweep_lbLeft)
+
+sweep_highestClose = ta.highest(close, sweep_lbLeft)
+sweep_lowestClose = ta.lowest(close, sweep_lbLeft)
+
+// Sweep Detection Logic
+sweep_bullishSFP = low < sweep_pLowVal and close > sweep_pLowVal and open > sweep_pLowVal and low == sweep_lp and sweep_lowestClose >= sweep_pLowVal
+sweep_bearishSFP = high > sweep_pHighVal and close < sweep_pHighVal and open < sweep_pHighVal and high == sweep_hp and sweep_highestClose <= sweep_pHighVal
+
+sweep_bullCond = sweep_bullishSFP[3] and (close > sweep_pLowVal) and (close[1] > sweep_pLowVal[1]) and (close[2] > sweep_pLowVal[2]) and bar_index >= sweep_bullSignalIndex + sweep_cooldownPeriod
+sweep_bearCond = sweep_bearishSFP[3] and (close < sweep_pHighVal) and (close[1] < sweep_pHighVal[1]) and (close[2] < sweep_pHighVal[2]) and bar_index >= sweep_bearSignalIndex + sweep_cooldownPeriod
+
+// ============================================================================
+// SWEEP SWING H/L STOPPER LOGIC
+// ============================================================================
+
+if high < sweep_swingLowVal and sweep_isSwingLowCheck
+    sweep_swingLowCounter := sweep_swingLowCounter + 1
+
+if low > sweep_swingHighVal and sweep_isSwingHighCheck
+    sweep_swingHighCounter := sweep_swingHighCounter + 1
+
+if ta.crossunder(close, sweep_swingLowVal) and sweep_isSwingLowCheck == false
+    sweep_isSwingLowCheck := true
+    sweep_swingLowCounter := 1
+
+if ta.crossover(close, sweep_swingHighVal) and sweep_isSwingHighCheck == false
+    sweep_isSwingHighCheck := true
+    sweep_swingHighCounter := 1
+
+if sweep_swingLowCounter == 5 and sweep_isSwingLowCheck
+    sweep_stopPrintingLow := true
+    sweep_isSwingLowCheck := false
+    line.set_x2(sweep_lowLine, bar_index[4])
+
+if sweep_swingHighCounter == 5 and sweep_isSwingHighCheck
+    sweep_stopPrintingHigh := true
+    sweep_isSwingHighCheck := false
+    line.set_x2(sweep_highLine, bar_index[4])
+
+// ============================================================================
+// DRAW SWEEP LINES
+// ============================================================================
+
+if sweep_bullCond and enableSweep
+    sweep_bullSignalIndex := bar_index
+    sweep_bullLine := line.new(sweep_prevLowIndex, sweep_pLowVal, bar_index - 3, sweep_pLowVal, color = sweep_bullColor, width = sweep_bullWidth, style = sweep_lineStyle(sweep_bullStyle))
+
+if sweep_bearCond and enableSweep
+    sweep_bearSignalIndex := bar_index
+    sweep_bearLine := line.new(sweep_prevHighIndex, sweep_pHighVal, bar_index - 3, sweep_pHighVal, color = sweep_bearColor, width = sweep_bearWidth, style = sweep_lineStyle(sweep_bearStyle))
+
+// ============================================================================
+// MANAGE LABEL ARRAYS
+// ============================================================================
+
+if array.size(sweep_swingHighArr) >= 3
+    label.delete(array.shift(sweep_swingHighArr))
+    label.delete(array.shift(sweep_swingHighTextArr))
+   
+if array.size(sweep_swingLowArr) >= 3
+    label.delete(array.shift(sweep_swingLowArr))
+    label.delete(array.shift(sweep_swingLowTextArr))
+
+// ============================================================================
+// DRAW RANGE LINES
+// ============================================================================
+
+if sweep_showSwing and enableSweep
+    if sweep_stopPrintingHigh == false 
+        line.set_x2(sweep_highLine, bar_index + 5)
+    if sweep_stopPrintingLow == false
+        line.set_x2(sweep_lowLine, bar_index + 5)
+
+if sweep_showSwing and not na(sweep_pHigh) and sweep_bearishSFP[sweep_lbRight] == false and enableSweep
+    sweep_stopPrintingHigh := false
+    sweep_swingHighVal := high[sweep_lbRight]
+    line.delete(sweep_highLine)
+    sweep_highLine := line.new(bar_index[sweep_lbRight], high[sweep_lbRight], bar_index + 10, high[sweep_lbRight], color = sweep_swingClr, width = 2)
+
+    sweep_swingHighLbl := label.new(bar_index[sweep_lbRight], high[sweep_lbRight], text = "", yloc = yloc.abovebar, color = sweep_swingClr, textcolor = sweep_swingClr, style = label.style_triangledown, size = size.auto)
+    sweep_swingHighLblTxt := label.new(bar_index[sweep_lbRight], high[sweep_lbRight], text = "Swing\nH", yloc = yloc.abovebar, color = sweep_swingClr, textcolor = sweep_swingClr, style = label.style_none, size = size.small)
+    array.push(sweep_swingHighArr, sweep_swingHighLbl)
+    array.push(sweep_swingHighTextArr, sweep_swingHighLblTxt)
+
+if sweep_showSwing and not na(sweep_pLow) and sweep_bullishSFP[sweep_lbRight] == false and enableSweep
+    sweep_stopPrintingLow := false
+    sweep_swingLowVal := low[sweep_lbRight]
+    line.delete(sweep_lowLine)
+    sweep_lowLine := line.new(bar_index[sweep_lbRight], low[sweep_lbRight], bar_index + 10, low[sweep_lbRight], color = sweep_swingClr, width = 2)
+
+    sweep_swingLowLbl := label.new(bar_index[sweep_lbRight], low[sweep_lbRight], text = "", yloc = yloc.belowbar, color = sweep_swingClr, textcolor = sweep_swingClr, style = label.style_triangleup, size = size.auto)
+    sweep_swingLowLblTxt := label.new(bar_index[sweep_lbRight], low[sweep_lbRight], text = "Swing\nL", yloc = yloc.belowbar, color = sweep_swingClr, textcolor = sweep_swingClr, style = label.style_none, size = size.small)
+    array.push(sweep_swingLowArr, sweep_swingLowLbl)
+    array.push(sweep_swingLowTextArr, sweep_swingLowLblTxt)
+
+// ============================================================================
+// SWEEP PLOT SIGNALS (Must be in global scope)
+// ============================================================================
+
+plotshape(enableSweep and sweep_bullCond, text = "Sweep", color = sweep_bullColor, textcolor = sweep_bullColor, location = location.belowbar, offset = -3)
+plotshape(enableSweep and sweep_bearCond, text = "Sweep", color = sweep_bearColor, textcolor = sweep_bearColor, location = location.abovebar, offset = -3)
+
+// ============================================================================
+// END OF SWEEP INSTITUTIONAL MODULE
+// ============================================================================
+
+// ============================================================================
 // END OF TACTICAL SUITE - FULL VERSION
 // ============================================================================
