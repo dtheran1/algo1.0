@@ -1149,16 +1149,16 @@ timeIsInRange(startHour, startMinute, endHour, endMinute) =>
 // Calculate next session open time
 timetilchange2 = switch
     timeIsInRange(9, 30, 16, 0) => timestamp("America/New_York", year(timenow), month(timenow), dayofmonth(timenow), 20, 0, 0)
-    timeIsInRange(20, 0, 2, 0) => timestamp("America/New_York", year(timenow), month(timenow), dayofmonth(timenow), 3, 0, 0)
+    timeIsInRange(20, 0, 2, 0) => timestamp("America/New_York", year(timenow), month(timenow), dayAdjustment, 3, 0, 0)
     timeIsInRange(3, 0, 11, 30) => timestamp("America/New_York", year(timenow), month(timenow), dayofmonth(timenow), 9, 30, 0)
     => na
 
 if na(timetilchange2)
     timetilchange2 := switch
-        nyHour < 9 or (nyHour == 9 and nyMinute < 30) => timestamp("America/New_York", year(timenow), month(timenow), dayofmonth(timenow), 9, 30, 0)
-        nyHour < 20 or (nyHour >= 16 and nyHour < 20) => timestamp("America/New_York", year(timenow), month(timenow), dayofmonth(timenow), 20, 0, 0)
-        nyHour < 3 or (nyHour >= 2 and nyHour < 3) => timestamp("America/New_York", year(timenow), month(timenow), dayofmonth(timenow), 3, 0, 0)
-        => na
+        (nyHour >= 16 and nyHour < 20) => timestamp("America/New_York", year(timenow), month(timenow), dayofmonth(timenow), 20, 0, 0)
+        (nyHour >= 11 and nyHour < 16) or (nyHour < 3) => timestamp("America/New_York", year(timenow), month(timenow), dayAdjustment, 3, 0, 0)
+        (nyHour >= 2 and nyHour < 9) or (nyHour == 9 and nyMinute < 30) => timestamp("America/New_York", year(timenow), month(timenow), dayofmonth(timenow), 9, 30, 0)
+        => timestamp("America/New_York", year(timenow), month(timenow), dayofmonth(timenow), 20, 0, 0)
 
 [hours2, minutes2] = calculateTimeDifference(timenow, timetilchange2)
 
@@ -1196,7 +1196,7 @@ if enableMxwll and showDashboard and barstate.islast
     table.cell(dashboardTable, 1, 2, text = stringCol, text_color = color.white)
     table.cell(dashboardTable, 1, 3, text = stringCol != "Dead Zone" ? str.tostring(hours) + "h" + str.tostring(minutes) + "m" : "Dead Zone", text_color = color.white)
     table.cell(dashboardTable, 1, 4, text = stringCol2, text_color = color.white)
-    table.cell(dashboardTable, 1, 5, text = str.tostring(hours2) + "h:" + str.tostring(minutes2) + "m", text_color = color.white)
+    table.cell(dashboardTable, 1, 5, text = not na(hours2) and not na(minutes2) ? str.tostring(hours2) + "h:" + str.tostring(minutes2) + "m" : "Dead Zone", text_color = color.white)
     table.cell(dashboardTable, 1, 6, text = hr4Act, text_color = color.white)
     table.cell(dashboardTable, 1, 7, text = D1Act, text_color = color.white)
 
@@ -2063,6 +2063,179 @@ plotshape(enableSweep and sweep_bearCond, text = "Sweep", color = sweep_bearColo
 
 // ============================================================================
 // END OF SWEEP INSTITUTIONAL MODULE
+// ============================================================================
+
+// ============================================================================
+// MODULE 6: RSI WITH DIVERGENCE LINES (VISUAL)
+// Shows RSI indicator with divergence detection lines like the image
+// ============================================================================
+
+// Enable/Disable RSI Visual Panel
+enableRSIVisual = input.bool(defval = true, title = "Show RSI with Divergence Lines", group = "═══ RSI VISUAL PANEL ═══")
+
+// Timeframe Preset Selection
+rsi_timeframe_preset = input.string(defval = "3m", title = "Timeframe Preset", options = ["1m", "3m", "15m", "1h", "4h", "Custom"], group = "RSI Visual: Settings", tooltip = "Auto-configure RSI for your trading timeframe")
+
+// Auto-configure based on timeframe (will be overridden if Custom is selected)
+rsi_length_auto = (rsi_timeframe_preset == "1m" ? 7 : rsi_timeframe_preset == "3m" ? 9 : rsi_timeframe_preset == "15m" ? 14 : rsi_timeframe_preset == "1h" ? 14 : rsi_timeframe_preset == "4h" ? 21 : 14)
+
+rsi_pivot_auto = (rsi_timeframe_preset == "1m" ? 2 : rsi_timeframe_preset == "3m" ? 3 : rsi_timeframe_preset == "15m" ? 5 : rsi_timeframe_preset == "1h" ? 5 : rsi_timeframe_preset == "4h" ? 7 : 5)
+
+rsi_lookback_auto = (rsi_timeframe_preset == "1m" ? 15 : rsi_timeframe_preset == "3m" ? 25 : rsi_timeframe_preset == "15m" ? 40 : rsi_timeframe_preset == "1h" ? 50 : rsi_timeframe_preset == "4h" ? 60 : 50)
+
+// RSI Settings (Manual override when Custom is selected)
+rsi_visual_length = input.int(9, title = "RSI Length", minval = 1, group = "RSI Visual: Settings", tooltip = "Auto: 1m=7, 3m=9, 15m=14, 1h=14, 4h=21")
+rsi_visual_overbought = input.int(70, title = "Overbought Level", minval = 50, maxval = 100, group = "RSI Visual: Settings")
+rsi_visual_oversold = input.int(30, title = "Oversold Level", minval = 0, maxval = 50, group = "RSI Visual: Settings")
+
+// Divergence Detection Settings (Manual override when Custom is selected)
+rsi_div_pivot_length = input.int(3, title = "Pivot Length", minval = 1, maxval = 20, group = "RSI Visual: Divergence", tooltip = "Auto: 1m=2, 3m=3, 15m=5, 1h=5, 4h=7")
+rsi_div_show_labels = input.bool(true, title = "Show Bear/Bull Labels", group = "RSI Visual: Divergence")
+rsi_div_lookback = input.int(25, title = "Lookback Bars", minval = 10, maxval = 200, group = "RSI Visual: Divergence", tooltip = "Auto: 1m=15, 3m=25, 15m=40, 1h=50, 4h=60")
+rsi_div_max_lines = input.int(5, title = "Max Lines to Show", minval = 1, maxval = 20, group = "RSI Visual: Divergence")
+
+// Use auto values or custom values based on preset selection
+final_rsi_length = rsi_timeframe_preset == "Custom" ? rsi_visual_length : rsi_length_auto
+final_pivot_length = rsi_timeframe_preset == "Custom" ? rsi_div_pivot_length : rsi_pivot_auto
+final_lookback = rsi_timeframe_preset == "Custom" ? rsi_div_lookback : rsi_lookback_auto
+
+// Colors
+rsi_visual_line_color = input.color(color.new(#2962FF, 0), title = "RSI Line Color", group = "RSI Visual: Colors")
+rsi_visual_bull_div_color = input.color(color.new(color.lime, 0), title = "Bullish Divergence", group = "RSI Visual: Colors")
+rsi_visual_bear_div_color = input.color(color.new(color.red, 0), title = "Bearish Divergence", group = "RSI Visual: Colors")
+
+// ============================================================================
+// RSI CALCULATION
+// ============================================================================
+
+rsi_visual_value = ta.rsi(close, final_rsi_length)
+
+// ============================================================================
+// RSI DIVERGENCE DETECTION
+// ============================================================================
+
+// Detect RSI Pivots
+rsi_pivot_high = ta.pivothigh(rsi_visual_value, final_pivot_length, final_pivot_length)
+rsi_pivot_low = ta.pivotlow(rsi_visual_value, final_pivot_length, final_pivot_length)
+
+// Price Pivots for comparison
+price_pivot_high = ta.pivothigh(high, final_pivot_length, final_pivot_length)
+price_pivot_low = ta.pivotlow(low, final_pivot_length, final_pivot_length)
+
+// Store pivot values and positions
+var array<float> rsi_pivot_high_vals = array.new<float>(0)
+var array<int> rsi_pivot_high_bars = array.new<int>(0)
+var array<float> price_pivot_high_vals = array.new<float>(0)
+
+var array<float> rsi_pivot_low_vals = array.new<float>(0)
+var array<int> rsi_pivot_low_bars = array.new<int>(0)
+var array<float> price_pivot_low_vals = array.new<float>(0)
+
+// Arrays to store divergence lines and labels
+var array<line> rsi_bear_div_lines = array.new<line>(0)
+var array<label> rsi_bear_div_labels = array.new<label>(0)
+var array<line> rsi_bull_div_lines = array.new<line>(0)
+var array<label> rsi_bull_div_labels = array.new<label>(0)
+
+// Add new pivots to arrays
+if not na(rsi_pivot_high) and enableRSIVisual
+    array.unshift(rsi_pivot_high_vals, rsi_pivot_high)
+    array.unshift(rsi_pivot_high_bars, bar_index - final_pivot_length)
+    array.unshift(price_pivot_high_vals, high[final_pivot_length])
+    
+    // Keep array size limited
+    if array.size(rsi_pivot_high_vals) > 10
+        array.pop(rsi_pivot_high_vals)
+        array.pop(rsi_pivot_high_bars)
+        array.pop(price_pivot_high_vals)
+
+if not na(rsi_pivot_low) and enableRSIVisual
+    array.unshift(rsi_pivot_low_vals, rsi_pivot_low)
+    array.unshift(rsi_pivot_low_bars, bar_index - final_pivot_length)
+    array.unshift(price_pivot_low_vals, low[final_pivot_length])
+    
+    // Keep array size limited
+    if array.size(rsi_pivot_low_vals) > 10
+        array.pop(rsi_pivot_low_vals)
+        array.pop(rsi_pivot_low_bars)
+        array.pop(price_pivot_low_vals)
+
+// ============================================================================
+// DETECT BEARISH DIVERGENCE (Price makes higher high, RSI makes lower high)
+// ============================================================================
+
+if enableRSIVisual and not na(rsi_pivot_high) and array.size(rsi_pivot_high_vals) >= 2
+    // Get last two pivot highs
+    curr_rsi_high = array.get(rsi_pivot_high_vals, 0)
+    prev_rsi_high = array.get(rsi_pivot_high_vals, 1)
+    
+    curr_price_high = array.get(price_pivot_high_vals, 0)
+    prev_price_high = array.get(price_pivot_high_vals, 1)
+    
+    curr_bar = array.get(rsi_pivot_high_bars, 0)
+    prev_bar = array.get(rsi_pivot_high_bars, 1)
+    
+    // Bearish Divergence: Price higher high, RSI lower high
+    if curr_price_high > prev_price_high and curr_rsi_high < prev_rsi_high
+        // Check if within lookback period
+        if bar_index - prev_bar <= final_lookback
+            // Draw line on price chart (overlay)
+            new_bear_line = line.new(prev_bar, prev_price_high, curr_bar, curr_price_high, 
+                 color = rsi_visual_bear_div_color, width = 2, style = line.style_solid)
+            array.push(rsi_bear_div_lines, new_bear_line)
+            
+            // Draw label
+            if rsi_div_show_labels
+                new_bear_label = label.new(curr_bar, curr_price_high, "Bear", 
+                     color = rsi_visual_bear_div_color, textcolor = color.white, 
+                     style = label.style_label_down, size = size.small)
+                array.push(rsi_bear_div_labels, new_bear_label)
+            
+            // Remove old lines if exceeds max
+            if array.size(rsi_bear_div_lines) > rsi_div_max_lines
+                line.delete(array.shift(rsi_bear_div_lines))
+            if array.size(rsi_bear_div_labels) > rsi_div_max_lines
+                label.delete(array.shift(rsi_bear_div_labels))
+
+// ============================================================================
+// DETECT BULLISH DIVERGENCE (Price makes lower low, RSI makes higher low)
+// ============================================================================
+
+if enableRSIVisual and not na(rsi_pivot_low) and array.size(rsi_pivot_low_vals) >= 2
+    // Get last two pivot lows
+    curr_rsi_low = array.get(rsi_pivot_low_vals, 0)
+    prev_rsi_low = array.get(rsi_pivot_low_vals, 1)
+    
+    curr_price_low = array.get(price_pivot_low_vals, 0)
+    prev_price_low = array.get(price_pivot_low_vals, 1)
+    
+    curr_bar = array.get(rsi_pivot_low_bars, 0)
+    prev_bar = array.get(rsi_pivot_low_bars, 1)
+    
+    // Bullish Divergence: Price lower low, RSI higher low
+    if curr_price_low < prev_price_low and curr_rsi_low > prev_rsi_low
+        // Check if within lookback period
+        if bar_index - prev_bar <= final_lookback
+            // Draw line on price chart (overlay)
+            new_bull_line = line.new(prev_bar, prev_price_low, curr_bar, curr_price_low, 
+                 color = rsi_visual_bull_div_color, width = 2, style = line.style_solid)
+            array.push(rsi_bull_div_lines, new_bull_line)
+            
+            // Draw label
+            if rsi_div_show_labels
+                new_bull_label = label.new(curr_bar, curr_price_low, "Bull", 
+                     color = rsi_visual_bull_div_color, textcolor = color.white, 
+                     style = label.style_label_up, size = size.small)
+                array.push(rsi_bull_div_labels, new_bull_label)
+            
+            // Remove old lines if exceeds max
+            if array.size(rsi_bull_div_lines) > rsi_div_max_lines
+                line.delete(array.shift(rsi_bull_div_lines))
+            if array.size(rsi_bull_div_labels) > rsi_div_max_lines
+                label.delete(array.shift(rsi_bull_div_labels))
+
+// ============================================================================
+// END OF RSI VISUAL PANEL MODULE
 // ============================================================================
 
 // ============================================================================
