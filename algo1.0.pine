@@ -143,6 +143,9 @@ div_showlines = input.bool(defval = false, title = "Show Divergence Lines", grou
 div_showpivot = input.bool(defval = false, title = "Show Pivot Points", group = "Divergence: Display")
 div_showindis = input.string(defval = "Don't Show", title = "Show Indicator Names", options = ["Full", "First Letter", "Don't Show"], group = "Divergence: Display")
 
+// ATR Filter Settings (Phase 6.1)
+div_use_atr_filter = input.bool(defval = true, title = "Filter Divergences by ATR Position", group = "Divergence: ATR Filter", tooltip = "Only show divergences when price closes above/below ATR lines. Bullish divergences require close > ATR, Bearish divergences require close < ATR")
+
 // Indicators to Check (Phase 6.2)
 div_calcmacd = input.bool(defval = true, title = "MACD", group = "Divergence: Indicators", inline = "ind1")
 div_calcmacda = input.bool(defval = true, title = "MACD Histogram", group = "Divergence: Indicators", inline = "ind1")
@@ -1641,6 +1644,39 @@ if enableDivergence
     
     if div_total_div < div_showlimit
         array.fill(div_all_divergences, 0)
+    
+    // ========================================================================
+    // PHASE 6.4.5: ATR FILTER FOR DIVERGENCES
+    // ========================================================================
+    
+    // Check if price closed above/below ATR and Fast ATR lines
+    // For bullish divergences: close should be above both ATR trend and fast trend
+    // For bearish divergences: close should be below both ATR trend and fast trend
+    atr_allows_bullish_div = not enableATR or not div_use_atr_filter or (close > atr_trend_value and (not show_fast or close > atr_fast_trend_value))
+    atr_allows_bearish_div = not enableATR or not div_use_atr_filter or (close < atr_trend_value and (not show_fast or close < atr_fast_trend_value))
+    
+    // Filter divergences based on ATR position
+    if enableATR and div_use_atr_filter
+        for x = 0 to 10
+            // Check each indicator's divergences
+            pos_reg_div = array.get(div_all_divergences, x * 4 + 0)  // Positive Regular
+            neg_reg_div = array.get(div_all_divergences, x * 4 + 1)  // Negative Regular
+            pos_hid_div = array.get(div_all_divergences, x * 4 + 2)  // Positive Hidden
+            neg_hid_div = array.get(div_all_divergences, x * 4 + 3)  // Negative Hidden
+            
+            // Clear bullish divergences if price is not above ATR lines
+            if not atr_allows_bullish_div
+                if pos_reg_div > 0
+                    array.set(div_all_divergences, x * 4 + 0, 0)
+                if pos_hid_div > 0
+                    array.set(div_all_divergences, x * 4 + 2, 0)
+            
+            // Clear bearish divergences if price is not below ATR lines
+            if not atr_allows_bearish_div
+                if neg_reg_div > 0
+                    array.set(div_all_divergences, x * 4 + 1, 0)
+                if neg_hid_div > 0
+                    array.set(div_all_divergences, x * 4 + 3, 0)
     
     // ========================================================================
     // PHASE 6.5: DIVERGENCE VISUALIZATION
