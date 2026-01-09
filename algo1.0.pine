@@ -144,7 +144,7 @@ div_showpivot = input.bool(defval = false, title = "Show Pivot Points", group = 
 div_showindis = input.string(defval = "Don't Show", title = "Show Indicator Names", options = ["Full", "First Letter", "Don't Show"], group = "Divergence: Display")
 
 // ATR Filter Settings (Phase 6.1)
-div_use_atr_filter = input.bool(defval = true, title = "Filter Divergences by ATR Position", group = "Divergence: ATR Filter", tooltip = "Only show divergences when price closes above/below ATR lines. Bullish divergences require close > ATR, Bearish divergences require close < ATR")
+div_use_atr_filter = input.bool(defval = false, title = "Filter Divergences by ATR Position", group = "Divergence: ATR Filter", tooltip = "Only show divergences when price closes above/below ATR lines. Bullish divergences require close > ATR, Bearish divergences require close < ATR")
 
 // Indicators to Check (Phase 6.2)
 div_calcmacd = input.bool(defval = true, title = "MACD", group = "Divergence: Indicators", inline = "ind1")
