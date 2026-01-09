@@ -1,0 +1,345 @@
+//@version=6
+indicator(title="Multi-Indicator Suite: RSI + Momentum + ADX + WaveTrend", shorttitle="Multi Suite", timeframe="", timeframe_gaps=true)
+
+//══════════════════════════════════════════════════════════════════════════════
+// RSI DIVERGENCE SECTION
+//══════════════════════════════════════════════════════════════════════════════
+
+// RSI Inputs
+show_RSI = input.bool(true, title="Show RSI Divergence", group="RSI Divergence")
+len = input.int(title="RSI Period", minval=1, defval=14, group="RSI Divergence")
+src = input(title="RSI Source", defval=close, group="RSI Divergence")
+lbR = input(title="Pivot Lookback Right", defval=5, display = display.data_window, group="RSI Divergence")
+lbL = input(title="Pivot Lookback Left", defval=5, display = display.data_window, group="RSI Divergence")
+rangeUpper = input(title="Max of Lookback Range", defval=60, display = display.data_window, group="RSI Divergence")
+rangeLower = input(title="Min of Lookback Range", defval=5, display = display.data_window, group="RSI Divergence")
+plotBull = input(title="Plot Bullish", defval=true, display = display.data_window, group="RSI Divergence")
+plotHiddenBull = input(title="Plot Hidden Bullish", defval=false, display = display.data_window, group="RSI Divergence")
+plotBear = input(title="Plot Bearish", defval=true, display = display.data_window, group="RSI Divergence")
+plotHiddenBear = input(title="Plot Hidden Bearish", defval=false, display = display.data_window, group="RSI Divergence")
+
+// RSI Colors
+bearColor = color.red
+bullColor = color.green
+hiddenBullColor = color.new(color.green, 80)
+hiddenBearColor = color.new(color.red, 80)
+textColor = color.white
+noneColor = color.new(color.white, 100)
+
+// RSI Calculation
+osc = ta.rsi(src, len)
+
+// RSI Plots
+plot(show_RSI ? osc : na, title="RSI", linewidth=2, color=#2962FF)
+hline(show_RSI ? 50 : na, title="Middle Line", color=#787B86, linestyle=hline.style_dotted)
+obLevel = hline(show_RSI ? 70 : na, title="Overbought", color=#787B86, linestyle=hline.style_dotted)
+osLevel = hline(show_RSI ? 30 : na, title="Oversold", color=#787B86, linestyle=hline.style_dotted)
+fill(obLevel, osLevel, title="Background", color=show_RSI ? color.rgb(33, 150, 243, 90) : na)
+
+// RSI Divergence Logic
+plFound = na(ta.pivotlow(osc, lbL, lbR)) ? false : true
+phFound = na(ta.pivothigh(osc, lbL, lbR)) ? false : true
+_inRange(cond) =>
+	bars = ta.barssince(cond == true)
+	rangeLower <= bars and bars <= rangeUpper
+
+//------------------------------------------------------------------------------
+// Regular Bullish
+// Osc: Higher Low
+inRangePl = _inRange(plFound[1])
+oscHL = osc[lbR] > ta.valuewhen(plFound, osc[lbR], 1) and inRangePl
+
+// Price: Lower Low
+
+priceLL = low[lbR] < ta.valuewhen(plFound, low[lbR], 1)
+bullCondAlert = priceLL and oscHL and plFound
+bullCond = plotBull and bullCondAlert and show_RSI
+
+plot(
+     show_RSI and plFound ? osc[lbR] : na,
+     offset=-lbR,
+     title="Regular Bullish",
+     linewidth=2,
+     color=(bullCond ? bullColor : noneColor),
+	 display = display.pane,
+	 editable = plotBull
+     )
+
+plotshape(
+	 bullCond ? osc[lbR] : na,
+	 offset=-lbR,
+	 title="Regular Bullish Label",
+	 text=" Bull ",
+	 style=shape.labelup,
+	 location=location.absolute,
+	 color=bullColor,
+	 textcolor=textColor,
+	 editable = plotBull
+	 )
+
+//------------------------------------------------------------------------------
+// Hidden Bullish
+// Osc: Lower Low
+
+oscLL = osc[lbR] < ta.valuewhen(plFound, osc[lbR], 1) and inRangePl
+
+// Price: Higher Low
+
+priceHL = low[lbR] > ta.valuewhen(plFound, low[lbR], 1)
+hiddenBullCondAlert = priceHL and oscLL and plFound
+hiddenBullCond = plotHiddenBull and hiddenBullCondAlert and show_RSI
+
+plot(
+	 show_RSI and plFound ? osc[lbR] : na,
+	 offset=-lbR,
+	 title="Hidden Bullish",
+	 linewidth=2,
+	 color=(hiddenBullCond ? hiddenBullColor : noneColor),
+	 display = display.pane,
+	 editable = plotHiddenBull
+	 )
+
+plotshape(
+	 hiddenBullCond ? osc[lbR] : na,
+	 offset=-lbR,
+	 title="Hidden Bullish Label",
+	 text=" H Bull ",
+	 style=shape.labelup,
+	 location=location.absolute,
+	 color=bullColor,
+	 textcolor=textColor,
+	 editable = plotHiddenBull
+	 )
+
+//------------------------------------------------------------------------------
+// Regular Bearish
+// Osc: Lower High
+inRangePh = _inRange(phFound[1])
+oscLH = osc[lbR] < ta.valuewhen(phFound, osc[lbR], 1) and inRangePh
+
+// Price: Higher High
+
+priceHH = high[lbR] > ta.valuewhen(phFound, high[lbR], 1)
+
+bearCondAlert = priceHH and oscLH and phFound
+bearCond = plotBear and bearCondAlert and show_RSI
+
+plot(
+	 show_RSI and phFound ? osc[lbR] : na,
+	 offset=-lbR,
+	 title="Regular Bearish",
+	 linewidth=2,
+	 color=(bearCond ? bearColor : noneColor),
+	 display = display.pane,
+	 editable = plotBear
+	 )
+
+plotshape(
+	 bearCond ? osc[lbR] : na,
+	 offset=-lbR,
+	 title="Regular Bearish Label",
+	 text=" Bear ",
+	 style=shape.labeldown,
+	 location=location.absolute,
+	 color=bearColor,
+	 textcolor=textColor,
+	 editable = plotBear
+	 )
+
+//------------------------------------------------------------------------------
+// Hidden Bearish
+// Osc: Higher High
+
+oscHH = osc[lbR] > ta.valuewhen(phFound, osc[lbR], 1) and inRangePh
+
+// Price: Lower High
+
+priceLH = high[lbR] < ta.valuewhen(phFound, high[lbR], 1)
+
+hiddenBearCondAlert = priceLH and oscHH and phFound
+hiddenBearCond = plotHiddenBear and hiddenBearCondAlert and show_RSI
+
+plot(
+	 show_RSI and phFound ? osc[lbR] : na,
+	 offset=-lbR,
+	 title="Hidden Bearish",
+	 linewidth=2,
+	 color=(hiddenBearCond ? hiddenBearColor : noneColor),
+	 display = display.pane,
+	 editable = plotHiddenBear
+	 )
+
+plotshape(
+	 hiddenBearCond ? osc[lbR] : na,
+	 offset=-lbR,
+	 title="Hidden Bearish Label",
+	 text=" H Bear ",
+	 style=shape.labeldown,
+	 location=location.absolute,
+	 color=bearColor,
+	 textcolor=textColor,
+	 editable = plotHiddenBear
+	 )
+
+alertcondition(bullCondAlert, title='Regular Bullish Divergence', message="Found a new Regular Bullish Divergence, `Pivot Lookback Right` number of bars to the left of the current bar")
+alertcondition(hiddenBullCondAlert, title='Hidden Bullish Divergence', message='Found a new Hidden Bullish Divergence, `Pivot Lookback Right` number of bars to the left of the current bar')
+alertcondition(bearCondAlert, title='Regular Bearish Divergence', message='Found a new Regular Bearish Divergence, `Pivot Lookback Right` number of bars to the left of the current bar')
+alertcondition(hiddenBearCondAlert, title='Hidden Bearish Divergence', message='Found a new Hidden Bearish Divergence, `Pivot Lookback Right` number of bars to the left of the current bar')
+
+//══════════════════════════════════════════════════════════════════════════════
+// SQUEEZE MOMENTUM INDICATOR SECTION
+// @author LazyBear 
+//══════════════════════════════════════════════════════════════════════════════
+
+// Momentum Inputs
+show_Momentum = input.bool(true, title="Show Squeeze Momentum", group="Squeeze Momentum")
+length_sqz = input.int(20, title="BB Length", group="Squeeze Momentum")
+mult_bb = input.float(2.0, title="BB MultFactor", group="Squeeze Momentum")
+lengthKC_sqz = input.int(20, title="KC Length", group="Squeeze Momentum")
+multKC_sqz = input.float(1.5, title="KC MultFactor", group="Squeeze Momentum")
+useTrueRange_sqz = input.bool(true, title="Use TrueRange (KC)", group="Squeeze Momentum")
+
+// Momentum Calculations
+// Calculate BB
+source_sqz = close
+basis_sqz = ta.sma(source_sqz, length_sqz)
+dev_sqz = mult_bb * ta.stdev(source_sqz, length_sqz)
+upperBB_sqz = basis_sqz + dev_sqz
+lowerBB_sqz = basis_sqz - dev_sqz
+
+// Calculate KC
+ma_sqz = ta.sma(source_sqz, lengthKC_sqz)
+range_sqz = useTrueRange_sqz ? ta.tr : (high - low)
+rangema_sqz = ta.sma(range_sqz, lengthKC_sqz)
+upperKC_sqz = ma_sqz + rangema_sqz * multKC_sqz
+lowerKC_sqz = ma_sqz - rangema_sqz * multKC_sqz
+
+sqzOn_sqz  = (lowerBB_sqz > lowerKC_sqz) and (upperBB_sqz < upperKC_sqz)
+sqzOff_sqz = (lowerBB_sqz < lowerKC_sqz) and (upperBB_sqz > upperKC_sqz)
+noSqz_sqz  = (sqzOn_sqz == false) and (sqzOff_sqz == false)
+
+val_sqz = ta.linreg(source_sqz - math.avg(math.avg(ta.highest(high, lengthKC_sqz), ta.lowest(low, lengthKC_sqz)), ta.sma(close, lengthKC_sqz)), lengthKC_sqz, 0)
+
+// Momentum Plots
+bcolor_sqz = val_sqz > 0 ? (val_sqz > nz(val_sqz[1]) ? color.lime : color.green) : (val_sqz < nz(val_sqz[1]) ? color.red : color.maroon)
+scolor_sqz = noSqz_sqz ? color.blue : sqzOn_sqz ? color.black : color.gray
+plot(show_Momentum ? val_sqz : na, color=bcolor_sqz, style=plot.style_histogram, linewidth=4, title="Squeeze Momentum")
+plot(show_Momentum ? 0 : na, color=scolor_sqz, style=plot.style_cross, linewidth=2, title="Squeeze Indicator")
+
+//══════════════════════════════════════════════════════════════════════════════
+// ADX/DMI SECTION
+// © OskarGallard
+//══════════════════════════════════════════════════════════════════════════════
+
+// ADX Functions
+// ALMA - Arnaud Legoux Moving Average
+enhanced_alma_adx(_series, _length, _offset, _sigma) =>
+    length = int(_length)
+    numerator = 0.0
+    denominator = 0.0
+    m = _offset * (length - 1)
+    s = length / _sigma
+    for i = 0 to length - 1 by 1
+        weight = math.exp(-((i - m) * (i - m)) / (2 * s * s))
+        numerator := numerator + weight * _series[length - 1 - i]
+        denominator := denominator + weight
+        denominator
+    numerator / denominator
+
+// Function to select the type of moving average
+ma_adx(_type, _source, _length) =>
+    switch _type
+        'SMA' => ta.sma(_source, _length)
+        'EMA' => ta.ema(_source, _length)
+        'WMA' => ta.wma(_source, _length)
+        'RMA' => ta.rma(_source, _length)
+        'ALMA' => enhanced_alma_adx(_source, _length, 0.85, 6)
+
+// ADX Inputs
+show_ADX_Indicator = input.bool(true, title="Show ADX/DMI Indicator", group="ADX/DMI")
+bool show_DMI_adx = input.bool(true, 'Show DMI', group="ADX/DMI")
+int dilen_adx = input.int(14, 'DI Length', minval = 1, group="ADX/DMI")
+string type_ma_adx = input.string('RMA', 'Type', options = ['ALMA', 'WMA', 'EMA', 'SMA', 'RMA'], group="ADX/DMI")
+bool show_ADX_adx = input.bool(true, 'Show ADX', group="ADX/DMI")
+int adxlen_adx = input.int(14, 'ADX Smoothing', minval = 1, maxval = 50, group="ADX/DMI")
+int keyLevel_adx = input.int(23, 'Key level for ADX', minval = 1, group="ADX/DMI")
+
+// ADX Calculations
+
+// ADX Calculations
+dirmov_adx(len) =>
+    up = ta.change(high)
+    down = -ta.change(low)
+    truerange = ta.rma(ta.tr, len)
+    plus = fixnan(100 * ma_adx(type_ma_adx, up > down and up > 0 ? up : 0, len) / truerange)
+    minus = fixnan(100 * ma_adx(type_ma_adx, down > up and down > 0 ? down : 0, len) / truerange)
+    [plus, minus]
+
+adx_calc(dilen, adxlen) =>
+    [plus, minus] = dirmov_adx(dilen)
+    sum = plus + minus
+    adx = 100 * ma_adx(type_ma_adx, math.abs(plus - minus) / (sum == 0 ? 1 : sum), adxlen)
+    [adx, plus, minus]
+
+[sig_adx, up_adx, down_adx] = adx_calc(dilen_adx, adxlen_adx)
+
+// ADX Colors
+color chartreuse_adx = #80FF00
+color deep_chartreuse_adx = #499100
+color redorange_adx = #FF4000
+color deep_redorange_adx = #912400
+color color_Plus_adx = up_adx > up_adx[1] ? chartreuse_adx : deep_chartreuse_adx
+color color_Minus_adx = down_adx > down_adx[1] ? redorange_adx : deep_redorange_adx
+color color_DMI_adx = up_adx > down_adx ? color.new(chartreuse_adx, 90) : color.new(redorange_adx, 90)
+color color_ADX_adx = sig_adx > sig_adx[1] ? #FFFFFF : #526172
+ADX_Trend_adx = sig_adx >= keyLevel_adx ? up_adx > down_adx ? 1 : -1 : 0
+color color_bull_adx = ta.rising(sig_adx, 2) ? color.new(chartreuse_adx, 80) : color.new(deep_chartreuse_adx, 80)
+color color_bear_adx = ta.rising(sig_adx, 2) ? color.new(redorange_adx, 80) : color.new(deep_redorange_adx, 80)
+color ADX_bgcolor_adx = ADX_Trend_adx == 1 ? color_bull_adx : ADX_Trend_adx == -1 ? color_bear_adx : color.new(#0A0C12, 50)
+
+// ADX Plots
+
+plot(show_ADX_Indicator and show_ADX_adx ? sig_adx : na, 'ADX', color_ADX_adx, linewidth = 2)
+plot(show_ADX_Indicator and show_ADX_adx ? keyLevel_adx : na, 'Key Level', color_ADX_adx)
+p1_adx = plot(show_ADX_Indicator and show_DMI_adx ? up_adx : na, '+DI', color_Plus_adx)
+p2_adx = plot(show_ADX_Indicator and show_DMI_adx ? down_adx : na, '-DI', color_Minus_adx)
+fill(p1_adx, p2_adx, show_ADX_Indicator ? color_DMI_adx : na, 'DI Fill')
+bgcolor(show_ADX_Indicator ? ADX_bgcolor_adx : na, title = 'ADX Trend Background')
+
+//══════════════════════════════════════════════════════════════════════════════
+// WAVETREND INDICATOR SECTION
+// @author LazyBear
+//══════════════════════════════════════════════════════════════════════════════
+
+// WaveTrend Inputs
+show_WaveTrend = input.bool(true, title="Show WaveTrend", group="WaveTrend")
+n1_wt = input.int(10, "Channel Length", group="WaveTrend")
+n2_wt = input.int(21, "Average Length", group="WaveTrend")
+obLevel1_wt = input.int(60, "Over Bought Level 1", group="WaveTrend")
+obLevel2_wt = input.int(42, "Over Bought Level 2", group="WaveTrend")
+osLevel1_wt = input.int(-60, "Over Sold Level 1", group="WaveTrend")
+osLevel2_wt = input.int(-42, "Over Sold Level 2", group="WaveTrend")
+
+// WaveTrend Calculations
+ap_wt = hlc3 
+esa_wt = ta.ema(ap_wt, n1_wt)
+d_wt = ta.ema(math.abs(ap_wt - esa_wt), n1_wt)
+ci_wt = (ap_wt - esa_wt) / (0.015 * d_wt)
+tci_wt = ta.ema(ci_wt, n2_wt)
+ 
+wt1 = tci_wt
+wt2 = ta.sma(wt1, 4)
+
+// WaveTrend Plots
+plot(show_WaveTrend ? 0 : na, color=color.gray, title="Zero Line")
+plot(show_WaveTrend ? obLevel1_wt : na, color=color.red, title="Overbought Level 1")
+plot(show_WaveTrend ? osLevel1_wt : na, color=color.green, title="Oversold Level 1")
+plot(show_WaveTrend ? obLevel2_wt : na, color=color.red, title="Overbought Level 2")
+plot(show_WaveTrend ? osLevel2_wt : na, color=color.green, title="Oversold Level 2")
+
+plot(show_WaveTrend ? wt1 : na, color=color.green, title="WaveTrend 1")
+plot(show_WaveTrend ? wt2 : na, color=color.red, title="WaveTrend 2")
+plot(show_WaveTrend ? wt1-wt2 : na, color=color.new(color.blue, 80), style=plot.style_area, title="WaveTrend Diff")
+plot(show_WaveTrend and ta.cross(wt1, wt2) ? wt2 : na, color=color.black, style=plot.style_circles, linewidth=3, title="Cross Outer")
+plot(show_WaveTrend and ta.cross(wt1, wt2) ? wt2 : na, color=(wt2 - wt1 > 0 ? color.red : color.lime), style=plot.style_circles, linewidth=2, title="Cross Inner")
+barcolor(show_WaveTrend and ta.cross(wt1, wt2) ? (wt2 - wt1 > 0 ? color.aqua : color.yellow) : na, title="Cross Barcolor")
