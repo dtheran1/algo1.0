@@ -2334,5 +2334,70 @@ if enableRSIVisual and not na(rsi_pivot_low) and array.size(rsi_pivot_low_vals) 
 // ============================================================================
 
 // ============================================================================
+// MODULE 7: SMOOTH TRAIL
+// Based on OmegaTools - Smooth Trail V2
+// ============================================================================
+enableSmoothTrail = input.bool(defval = true, title = "Enable Smooth Trail", group = "═══ SMOOTH TRAIL ═══")
+st_multiplier    = input.float(3.00, "Multiplier",         group = "Smooth Trail: Settings", minval = 0.1, step = 0.5)
+st_length        = input.int(34,    "Length",              group = "Smooth Trail: Settings", minval = 1)
+st_zone_width    = input.float(1.00, "Zone Width",         group = "Smooth Trail: Settings", minval = 0.1, step = 0.1)
+st_show_target   = input.bool(false, "Show Opposite Area", group = "Smooth Trail: Settings")
+st_show_lines    = input.bool(false, "Show Crossing Lines",group = "Smooth Trail: Settings")
+st_alert_type    = input.string("Zone Touch", "Alert Type", options = ["Zone Touch", "Trend Change"], group = "Smooth Trail: Settings")
+
+// Smooth Trail Calculations
+st_atrs = ta.atr(100)
+[st_supertrend, st_direction] = ta.supertrend(math.round(math.avg(7, st_multiplier)), st_length * 2)
+st_hullup   = ta.hma(high, math.round(math.avg(21, st_length))) + st_atrs * math.round(st_multiplier / 2.5)
+st_hulldown = ta.hma(low,  math.round(math.avg(21, st_length))) - st_atrs * math.round(st_multiplier / 2.5)
+st_hline    = ta.highest(close, st_length) + st_atrs
+st_lline    = ta.lowest(close,  st_length) + st_atrs
+
+var float st_supert = 0.0
+st_supert := if close > st_supertrend
+    math.avg(st_supertrend, st_supertrend, st_supertrend, st_hulldown, st_lline)
+else if close < st_supertrend
+    math.avg(st_supertrend, st_supertrend, st_supertrend, st_hullup, st_hline)
+else
+    nz(st_supert[1])
+
+var float st_supert2 = 0.0
+st_supert2 := if close > st_supert
+    st_supert + st_atrs * st_zone_width
+else if close < st_supert
+    st_supert - st_atrs * st_zone_width
+else
+    nz(st_supert2[1])
+
+st_toolx     = st_show_lines ? true : (st_direction < 0 and st_direction[1] < 0) or (st_direction > 0 and st_direction[1] > 0)
+st_color_up  = #2962ff
+st_color_dn  = #e91e63
+st_line_col  = close > st_supert ? st_color_up : st_color_dn
+
+// Smooth Trail Plots
+st_p1 = plot(enableSmoothTrail and st_toolx ? st_supert  : na, "Smooth Trail", color = st_line_col, style = plot.style_linebr, linewidth = 2)
+st_p2 = plot(enableSmoothTrail and st_toolx ? st_supert2 : na, "Zone Line",    color = color.new(color.gray, 100), display = display.none, editable = false, style = plot.style_linebr)
+fill(st_p1, st_p2, color = enableSmoothTrail ? (close > st_supert ? color.new(st_color_up, 80) : color.new(st_color_dn, 80)) : na, fillgaps = false)
+
+st_mid  = ta.ema(close, 21)
+st_dist = (st_supert - st_mid) * st_zone_width
+st_tpl  = ta.sma(st_mid - st_dist, 2)
+plot(enableSmoothTrail and st_toolx and st_show_target ? st_tpl : na, "Smooth Trail Target", color = st_line_col, style = plot.style_linebr)
+
+// Smooth Trail Alert Conditions
+st_zone_touch  = (close < st_supert2 and close > st_supert) or (close > st_supert2 and close < st_supert)
+st_trend_chg   = (st_direction < 0 and st_direction[3] > 0) or (st_direction > 0 and st_direction[3] < 0)
+st_alert_cond  = switch st_alert_type
+    "Zone Touch"   => st_zone_touch
+    "Trend Change" => st_trend_chg
+    => false
+
+alertcondition(enableSmoothTrail and st_alert_cond, "Smooth Trail Alert", "{{ticker}}: Price is in the Smooth Trail area")
+
+// ============================================================================
+// END OF SMOOTH TRAIL MODULE
+// ============================================================================
+
+// ============================================================================
 // END OF TACTICAL SUITE - FULL VERSION
 // ============================================================================
