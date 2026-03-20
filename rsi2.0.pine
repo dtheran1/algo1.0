@@ -198,6 +198,8 @@ mult_bb = input.float(2.0, title="BB MultFactor", group="Squeeze Momentum")
 lengthKC_sqz = input.int(20, title="KC Length", group="Squeeze Momentum")
 multKC_sqz = input.float(1.5, title="KC MultFactor", group="Squeeze Momentum")
 useTrueRange_sqz = input.bool(true, title="Use TrueRange (KC)", group="Squeeze Momentum")
+norm_length_sqz = input.int(100, title="Normalization Lookback", group="Squeeze Momentum", tooltip="Bars used to normalize Momentum height. Higher = more stable scale.")
+norm_scale_sqz = input.float(50.0, title="Normalized Scale", minval=1.0, step=5.0, group="Squeeze Momentum", tooltip="Max amplitude of Momentum histogram. 50 = fits well alongside RSI/ADX/WaveTrend.")
 
 // Momentum Calculations
 // Calculate BB
@@ -220,10 +222,14 @@ noSqz_sqz  = (sqzOn_sqz == false) and (sqzOff_sqz == false)
 
 val_sqz = ta.linreg(source_sqz - math.avg(math.avg(ta.highest(high, lengthKC_sqz), ta.lowest(low, lengthKC_sqz)), ta.sma(close, lengthKC_sqz)), lengthKC_sqz, 0)
 
+// Normalize Momentum to fixed scale so it doesn't dominate the pane
+_abs_max_sqz = ta.highest(math.abs(val_sqz), norm_length_sqz)
+norm_val_sqz = _abs_max_sqz != 0 ? val_sqz / _abs_max_sqz * norm_scale_sqz : val_sqz
+
 // Momentum Plots
 bcolor_sqz = val_sqz > 0 ? (val_sqz > nz(val_sqz[1]) ? color.lime : color.green) : (val_sqz < nz(val_sqz[1]) ? color.red : color.maroon)
 scolor_sqz = noSqz_sqz ? color.blue : sqzOn_sqz ? color.black : color.gray
-plot(show_Momentum ? val_sqz : na, color=bcolor_sqz, style=plot.style_histogram, linewidth=4, title="Squeeze Momentum")
+plot(show_Momentum ? norm_val_sqz : na, color=bcolor_sqz, style=plot.style_histogram, linewidth=4, title="Squeeze Momentum")
 plot(show_Momentum ? 0 : na, color=scolor_sqz, style=plot.style_cross, linewidth=2, title="Squeeze Indicator")
 
 //══════════════════════════════════════════════════════════════════════════════

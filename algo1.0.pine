@@ -1120,9 +1120,12 @@ drawAOE()
 // Create dashboard table (global scope)
 var dashboardTable = table.new(position.top_right, 13, 13, bgcolor = #20222C, border_color = #363843, frame_color = #363843, border_width = 1, frame_width = 1)
 
-// Get NY timezone hour/minute for dashboard session detection (timenow)
-nyHour = hour(timenow, "America/New_York")
-nyMinute = minute(timenow, "America/New_York")
+// Get real-time current time (updates every minute regardless of chart timeframe)
+realtimeNow = request.security(syminfo.tickerid, "1", timenow, lookahead = barmerge.lookahead_on)
+
+// Get NY timezone hour/minute for dashboard session detection (using realtime updates)
+nyHour = hour(realtimeNow, "America/New_York")
+nyMinute = minute(realtimeNow, "America/New_York")
 
 // Function to calculate time difference between two timestamps
 calculateTimeDifference(timestamp1, timestamp2) =>
@@ -1131,39 +1134,73 @@ calculateTimeDifference(timestamp1, timestamp2) =>
     minutes = math.floor((timeDifference % 3600000) / 60000)
     [hours, minutes]
 
-// Day adjustment for overnight sessions
-dayAdjustment = (hour(timenow, "America/New_York") < 2) ? dayofmonth(timenow) + 1 : dayofmonth(timenow)
-dayAdjustment2 = nyHour >= 20 or nyHour < 2 ? dayofmonth(timenow) + 1 : dayofmonth(timenow)
+// Day adjustment for overnight sessions (using realtime updates)
+dayAdjustment = (hour(realtimeNow, "America/New_York") < 2) ? dayofmonth(realtimeNow) + 1 : dayofmonth(realtimeNow)
+dayAdjustment2 = nyHour >= 20 or nyHour < 2 ? dayofmonth(realtimeNow) + 1 : dayofmonth(realtimeNow)
+
+// Calculate timezone offset (local time - NY time) for forex schedule display
+localHour = hour(realtimeNow)
+localMinute = minute(realtimeNow)
+tzOffsetHours = localHour - nyHour
+// Adjust for day boundary crossing
+tzOffsetHours := tzOffsetHours > 12 ? tzOffsetHours - 24 : tzOffsetHours < -12 ? tzOffsetHours + 24 : tzOffsetHours
+
+// Function to convert NY time to local time and format as string
+convertNYtoLocal(nyH, nyM) =>
+    localH = nyH + tzOffsetHours
+    localH := localH >= 24 ? localH - 24 : localH < 0 ? localH + 24 : localH
+    str.format("{0,number,00}:{1,number,00}", localH, nyM)
+
+// Session schedules in NY time (CME Standard - Futures Market)
+// New York: 08:30 - 15:15 NY
+// London: 02:00 - 08:00 NY
+// Asia/Tokyo: 18:00 - 00:00 NY (midnight)
+nyOpenLocal = convertNYtoLocal(8, 30)
+nyCloseLocal = convertNYtoLocal(15, 15)
+londonOpenLocal = convertNYtoLocal(2, 0)
+londonCloseLocal = convertNYtoLocal(8, 0)
+asiaOpenLocal = convertNYtoLocal(18, 0)
+asiaCloseLocal = convertNYtoLocal(0, 0)
 
 // Time range check function for dashboard (uses nyHour/nyMinute from timenow)
 timeIsInRange(startHour, startMinute, endHour, endMinute) =>
     (nyHour > startHour or (nyHour == startHour and nyMinute >= startMinute)) and (nyHour < endHour or (nyHour == endHour and nyMinute <= endMinute))
 
-// Use switch to determine current session and times (EXACT MXWLL PATTERN)
+// Check if each session is currently active (CME Standard hours)
+isNYActive = timeIsInRange(8, 30, 15, 15)
+isLondonActive = timeIsInRange(2, 0, 8, 0)
+// Asia session: 18:00 - 00:00 (midnight is close, not included in active)
+isAsiaActive = (nyHour >= 18 and nyHour <= 23)
+
+// Use switch to determine current session and times (CME Standard - realtime updates)
 [chartcol, timetilchange, stringCol, stringCol2] = switch
-    timeIsInRange(9, 30, 16, 0) => [#f24968, timestamp("America/New_York", year(timenow), month(timenow), dayofmonth(timenow), 16, 0, 0), "New York", "Asia"]
-    timeIsInRange(20, 0, 2, 0) => [#14D990, timestamp("America/New_York", year(timenow), month(timenow), dayAdjustment, 2, 0, 0), "Asia", "London"]
-    timeIsInRange(3, 0, 11, 30) => [#F2B807, timestamp("America/New_York", year(timenow), month(timenow), dayofmonth(timenow), 11, 30, 0), "London", "New York"]
-    => [color.gray, int(na), "Dead Zone", (nyHour > 16 or nyHour < 3) ? "London" : (nyHour >= 11 and nyHour < 20) ? "Asia" : "New York"]
+    timeIsInRange(8, 30, 15, 15) => [#f24968, timestamp("America/New_York", year(realtimeNow), month(realtimeNow), dayofmonth(realtimeNow), 15, 15, 0), "New York", "Asia"]
+    (nyHour >= 18 and nyHour <= 23) => [#14D990, timestamp("America/New_York", year(realtimeNow), month(realtimeNow), dayofmonth(realtimeNow) + 1, 0, 0, 0), "Asia", "London"]
+    timeIsInRange(2, 0, 8, 0) => [#F2B807, timestamp("America/New_York", year(realtimeNow), month(realtimeNow), dayofmonth(realtimeNow), 8, 0, 0), "London", "New York"]
+    => [color.gray, int(na), "Dead Zone", (nyHour >= 15 and nyHour < 18) ? "Asia" : ((nyHour >= 0 and nyHour < 2) or (nyHour == 0)) ? "London" : "New York"]
 
-// Calculate time until session close
-[hours, minutes] = calculateTimeDifference(timenow, timetilchange)
+// Calculate time until session close (realtime updates)
+[hours, minutes] = calculateTimeDifference(realtimeNow, timetilchange)
 
-// Calculate next session open time
+// Calculate next session open time (CME Standard - realtime updates)
 timetilchange2 = switch
-    timeIsInRange(9, 30, 16, 0) => timestamp("America/New_York", year(timenow), month(timenow), dayofmonth(timenow), 20, 0, 0)
-    timeIsInRange(20, 0, 2, 0) => timestamp("America/New_York", year(timenow), month(timenow), dayAdjustment, 3, 0, 0)
-    timeIsInRange(3, 0, 11, 30) => timestamp("America/New_York", year(timenow), month(timenow), dayofmonth(timenow), 9, 30, 0)
+    timeIsInRange(8, 30, 15, 15) => timestamp("America/New_York", year(realtimeNow), month(realtimeNow), dayofmonth(realtimeNow), 18, 0, 0)
+    (nyHour >= 18 and nyHour <= 23) => timestamp("America/New_York", year(realtimeNow), month(realtimeNow), dayofmonth(realtimeNow) + 1, 2, 0, 0)
+    timeIsInRange(2, 0, 8, 0) => timestamp("America/New_York", year(realtimeNow), month(realtimeNow), dayofmonth(realtimeNow), 8, 30, 0)
     => na
 
 if na(timetilchange2)
     timetilchange2 := switch
-        (nyHour >= 16 and nyHour < 20) => timestamp("America/New_York", year(timenow), month(timenow), dayofmonth(timenow), 20, 0, 0)
-        (nyHour >= 11 and nyHour < 16) or (nyHour < 3) => timestamp("America/New_York", year(timenow), month(timenow), dayAdjustment, 3, 0, 0)
-        (nyHour >= 2 and nyHour < 9) or (nyHour == 9 and nyMinute < 30) => timestamp("America/New_York", year(timenow), month(timenow), dayofmonth(timenow), 9, 30, 0)
-        => timestamp("America/New_York", year(timenow), month(timenow), dayofmonth(timenow), 20, 0, 0)
+        // Dead Zone 15:15-18:00: Next is Asia at 18:00
+        (nyHour == 15 and nyMinute > 15) or (nyHour > 15 and nyHour < 18) => timestamp("America/New_York", year(realtimeNow), month(realtimeNow), dayofmonth(realtimeNow), 18, 0, 0)
+        // Dead Zone 00:00-02:00: Next is London at 02:00
+        (nyHour >= 0 and nyHour < 2) => timestamp("America/New_York", year(realtimeNow), month(realtimeNow), dayofmonth(realtimeNow), 2, 0, 0)
+        // Dead Zone 08:00-08:30: Next is NY at 08:30
+        (nyHour == 8 and nyMinute < 30) => timestamp("America/New_York", year(realtimeNow), month(realtimeNow), dayofmonth(realtimeNow), 8, 30, 0)
+        // Default fallback (should not reach here)
+        => timestamp("America/New_York", year(realtimeNow), month(realtimeNow), dayofmonth(realtimeNow) + 1, 18, 0, 0)
 
-[hours2, minutes2] = calculateTimeDifference(timenow, timetilchange2)
+[hours2, minutes2] = calculateTimeDifference(realtimeNow, timetilchange2)
 
 // Method to calculate volume activity using percentiles (EXACT MXWLL)
 method getActivity(array<float> id, float id2) =>
@@ -1197,11 +1234,33 @@ if enableMxwll and showDashboard and barstate.islast
     table.cell(dashboardTable, 0, 7, text = "24-Hr Volume:", text_color = color.white, text_halign = text.align_left)
     
     table.cell(dashboardTable, 1, 2, text = stringCol, text_color = color.white)
-    table.cell(dashboardTable, 1, 3, text = stringCol != "Dead Zone" ? str.tostring(hours) + "h" + str.tostring(minutes) + "m" : "Dead Zone", text_color = color.white)
+    table.cell(dashboardTable, 1, 3, text = stringCol != "Dead Zone" and not na(hours) and not na(minutes) and hours >= 0 ? str.tostring(hours) + "h:" + str.format("{0,number,00}m", math.abs(minutes)) : "Dead Zone", text_color = color.white)
     table.cell(dashboardTable, 1, 4, text = stringCol2, text_color = color.white)
-    table.cell(dashboardTable, 1, 5, text = not na(hours2) and not na(minutes2) ? str.tostring(hours2) + "h:" + str.tostring(minutes2) + "m" : "Dead Zone", text_color = color.white)
+    table.cell(dashboardTable, 1, 5, text = not na(hours2) and not na(minutes2) and hours2 >= 0 ? str.tostring(hours2) + "h:" + str.format("{0,number,00}m", math.abs(minutes2)) : "Calculating...", text_color = color.white)
     table.cell(dashboardTable, 1, 6, text = hr4Act, text_color = color.white)
     table.cell(dashboardTable, 1, 7, text = D1Act, text_color = color.white)
+
+    // Forex Market Hours Section (Local Time) - Ordered chronologically
+    table.cell(dashboardTable, 0, 8, text = "─── Forex Hours ───", text_color = color.gray, text_halign = text.align_left)
+    table.cell(dashboardTable, 1, 8, text = "(Local Time)", text_color = color.gray)
+
+    // Asia/Tokyo Session (Opens 18:00 NY)
+    asiaStatusIcon = isAsiaActive ? "●" : "○"
+    asiaStatusColor = isAsiaActive ? asCol : color.gray
+    table.cell(dashboardTable, 0, 9, text = asiaStatusIcon + " Asia/Tokyo:", text_color = asiaStatusColor, text_halign = text.align_left)
+    table.cell(dashboardTable, 1, 9, text = asiaOpenLocal + " - " + asiaCloseLocal, text_color = asiaStatusColor)
+
+    // London Session (Opens 02:00 NY)
+    londonStatusIcon = isLondonActive ? "●" : "○"
+    londonStatusColor = isLondonActive ? loCol : color.gray
+    table.cell(dashboardTable, 0, 10, text = londonStatusIcon + " London:", text_color = londonStatusColor, text_halign = text.align_left)
+    table.cell(dashboardTable, 1, 10, text = londonOpenLocal + " - " + londonCloseLocal, text_color = londonStatusColor)
+
+    // New York Session (Opens 08:30 NY)
+    nyStatusIcon = isNYActive ? "●" : "○"
+    nyStatusColor = isNYActive ? nyCol : color.gray
+    table.cell(dashboardTable, 0, 11, text = nyStatusIcon + " New York:", text_color = nyStatusColor, text_halign = text.align_left)
+    table.cell(dashboardTable, 1, 11, text = nyOpenLocal + " - " + nyCloseLocal, text_color = nyStatusColor)
 
 // ============================================================================
 // SESSION ZONES BACKGROUND COLORS (PHASE 5.3)
@@ -1219,10 +1278,10 @@ timeIsInRange2(startHour, startMinute, endHour, endMinute) =>
     else
         (nyHour2 > startHour or (nyHour2 == startHour and nyMinute2 >= startMinute)) or (nyHour2 < endHour or (nyHour2 == endHour and nyMinute2 <= endMinute))
 
-// Apply session background colors (must be in global scope)
-bgcolor(enableMxwll and showNY and timeIsInRange2(9, 30, 16, 0) ? color.new(nyCol, nyTransparency) : na)
-bgcolor(enableMxwll and showAsia and timeIsInRange2(20, 0, 2, 0) ? color.new(asCol, asiaTransparency) : na)
-bgcolor(enableMxwll and showLondon and timeIsInRange2(3, 0, 11, 30) ? color.new(loCol, londonTransparency) : na)
+// Apply session background colors (CME Standard hours)
+bgcolor(enableMxwll and showNY and timeIsInRange2(8, 30, 15, 15) ? color.new(nyCol, nyTransparency) : na)
+bgcolor(enableMxwll and showAsia and timeIsInRange2(18, 0, 0, 0) ? color.new(asCol, asiaTransparency) : na)
+bgcolor(enableMxwll and showLondon and timeIsInRange2(2, 0, 8, 0) ? color.new(loCol, londonTransparency) : na)
 
 // ============================================================================
 // AUTO FIBONACCI - PHASE 4

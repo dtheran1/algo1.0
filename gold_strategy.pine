@@ -1,0 +1,645 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Aurolo - Gold Trading Strategy for XAUUSD 3m
+// Combines: Divergences + ATR Filter + RSI Confirmation + ATR-based TP/SL
+
+//@version=6
+indicator("Gold Strategy - Divergence + ATR + RSI", shorttitle = "Gold Strategy", overlay = true, max_bars_back = 500, max_lines_count = 100, max_labels_count = 100)
+
+// ============================================================================
+// INPUTS - STRATEGY SETTINGS
+// ============================================================================
+
+// Divergence Settings
+divGroup = "═══ DIVERGENCE SETTINGS ═══"
+prd = input.int(defval = 5, title = "Pivot Period", minval = 1, maxval = 50, group = divGroup)
+searchdiv = input.string(defval = "Regular", title = "Divergence Type", options = ["Regular", "Hidden", "Regular/Hidden"], group = divGroup)
+maxpp = input.int(defval = 10, title = "Maximum Pivot Points to Check", minval = 1, maxval = 20, group = divGroup)
+maxbars = input.int(defval = 100, title = "Maximum Bars to Check", minval = 30, maxval = 200, group = divGroup)
+divValidBars = input.int(defval = 10, title = "Divergence Valid Bars", minval = 1, maxval = 50, group = divGroup, tooltip = "Number of bars a divergence remains valid for entry signal")
+showDivLines = input.bool(defval = true, title = "Show Divergence Lines", group = divGroup)
+
+// Divergence Indicators Selection
+divIndicators = "═══ DIVERGENCE INDICATORS ═══"
+calcRSI = input.bool(defval = true, title = "RSI Divergence", group = divIndicators)
+calcMACD = input.bool(defval = true, title = "MACD Divergence", group = divIndicators)
+calcMACDHist = input.bool(defval = true, title = "MACD Histogram Divergence", group = divIndicators)
+calcStoch = input.bool(defval = true, title = "Stochastic Divergence", group = divIndicators)
+calcCCI = input.bool(defval = false, title = "CCI Divergence", group = divIndicators)
+calcMOM = input.bool(defval = false, title = "Momentum Divergence", group = divIndicators)
+calcMFI = input.bool(defval = false, title = "MFI Divergence", group = divIndicators)
+
+// ATR Settings
+atrGroup = "═══ ATR FILTER SETTINGS ═══"
+atrLength = input.int(defval = 10, title = "ATR Period", minval = 1, group = atrGroup)
+atrMulti = input.float(defval = 2.0, title = "ATR Multiplier", minval = 0.1, step = 0.1, group = atrGroup, tooltip = "Multiplier for main ATR trend line")
+fastAtrMulti = input.float(defval = 0.5, title = "Fast ATR Multiplier", minval = 0.1, step = 0.1, group = atrGroup, tooltip = "Multiplier for fast ATR trend line")
+showATR = input.bool(defval = true, title = "Show ATR Lines", group = atrGroup)
+showFastATR = input.bool(defval = true, title = "Show Fast ATR Line", group = atrGroup)
+
+// RSI Settings
+rsiGroup = "═══ RSI CONFIRMATION ═══"
+rsiLength = input.int(defval = 14, title = "RSI Length", minval = 1, group = rsiGroup)
+rsiMidline = input.int(defval = 50, title = "RSI Midline", minval = 30, maxval = 70, group = rsiGroup, tooltip = "RSI level for buy/sell confirmation")
+
+// Advanced Filters
+filtersGroup = "═══ PRECISION FILTERS ═══"
+minDivergences = input.int(defval = 2, title = "Minimum Divergences Required", minval = 1, maxval = 7, group = filtersGroup, tooltip = "Minimum number of indicators showing divergence")
+useVolumeFilter = input.bool(defval = true, title = "Use Volume Filter", group = filtersGroup)
+volumeMultiplier = input.float(defval = 1.0, title = "Volume Threshold (x Average)", minval = 0.5, step = 0.1, group = filtersGroup, tooltip = "Volume must be above this multiple of average")
+volumeLength = input.int(defval = 20, title = "Volume Average Length", minval = 5, group = filtersGroup)
+useCandleConfirm = input.bool(defval = true, title = "Require Candle Confirmation", group = filtersGroup, tooltip = "Require bullish/bearish candle pattern")
+
+// EMA Trend Filter
+emaGroup = "═══ EMA TREND FILTER ═══"
+useEMAFilter = input.bool(defval = true, title = "Use EMA Trend Filter", group = emaGroup)
+emaFastLength = input.int(defval = 50, title = "Fast EMA Length", minval = 5, group = emaGroup)
+emaSlowLength = input.int(defval = 200, title = "Slow EMA Length", minval = 20, group = emaGroup)
+showEMAs = input.bool(defval = true, title = "Show EMA Lines", group = emaGroup)
+
+// TP/SL Settings
+tpslGroup = "═══ TP/SL SETTINGS (ATR-based) ═══"
+showTPSL = input.bool(defval = true, title = "Show TP/SL Levels", group = tpslGroup)
+slMulti = input.float(defval = 1.5, title = "Stop Loss ATR Multiplier", minval = 0.5, step = 0.1, group = tpslGroup)
+tp1Multi = input.float(defval = 1.0, title = "Take Profit 1 ATR Multiplier", minval = 0.5, step = 0.1, group = tpslGroup)
+tp2Multi = input.float(defval = 2.0, title = "Take Profit 2 ATR Multiplier", minval = 0.5, step = 0.1, group = tpslGroup)
+tp3Multi = input.float(defval = 3.0, title = "Take Profit 3 ATR Multiplier", minval = 0.5, step = 0.1, group = tpslGroup)
+
+// Visual Settings
+visualGroup = "═══ VISUAL SETTINGS ═══"
+bullColor = input.color(defval = #00E676, title = "Bullish Color", group = visualGroup)
+bearColor = input.color(defval = #FF5252, title = "Bearish Color", group = visualGroup)
+neutralColor = input.color(defval = #808080, title = "Neutral Color", group = visualGroup)
+showSignals = input.bool(defval = true, title = "Show Entry Signals", group = visualGroup)
+showDashboard = input.bool(defval = true, title = "Show Dashboard", group = visualGroup)
+
+// ============================================================================
+// CALCULATE INDICATORS
+// ============================================================================
+
+// RSI
+rsiValue = ta.rsi(close, rsiLength)
+rsiAbove50 = rsiValue > rsiMidline
+rsiBelow50 = rsiValue < rsiMidline
+
+// MACD
+[macdLine, signalLine, histLine] = ta.macd(close, 12, 26, 9)
+
+// Stochastic
+stochK = ta.sma(ta.stoch(close, high, low, 14), 3)
+
+// CCI
+cciValue = ta.cci(close, 10)
+
+// Momentum
+momValue = ta.mom(close, 10)
+
+// MFI
+mfiValue = ta.mfi(close, 14)
+
+// ============================================================================
+// EMA TREND FILTER
+// ============================================================================
+
+emaFast = ta.ema(close, emaFastLength)
+emaSlow = ta.ema(close, emaSlowLength)
+
+// EMA Trend conditions
+emaBullish = close > emaFast and close > emaSlow and emaFast > emaSlow
+emaBearish = close < emaFast and close < emaSlow and emaFast < emaSlow
+emaFilter = useEMAFilter ? (emaBullish or emaBearish) : true
+emaBullFilter = useEMAFilter ? emaBullish : true
+emaBearFilter = useEMAFilter ? emaBearish : true
+
+// ============================================================================
+// VOLUME FILTER
+// ============================================================================
+
+volumeAvg = ta.sma(volume, volumeLength)
+volumeHigh = volume > (volumeAvg * volumeMultiplier)
+volumeFilter = useVolumeFilter ? volumeHigh : true
+
+// ============================================================================
+// CANDLE PATTERN CONFIRMATION
+// ============================================================================
+
+// Candle body and wick calculations
+bodySize = math.abs(close - open)
+upperWick = high - math.max(close, open)
+lowerWick = math.min(close, open) - low
+totalRange = high - low
+bodyPercent = totalRange > 0 ? bodySize / totalRange : 0
+
+// Bullish candle patterns
+isBullishCandle = close > open
+isBullishEngulfing = close > open and close > high[1] and open < low[1]
+isBullishPinBar = lowerWick > (bodySize * 2) and upperWick < bodySize and close > open
+isHammer = lowerWick > (bodySize * 2) and upperWick < (bodySize * 0.5) and bodyPercent < 0.4
+isBullishDoji = bodyPercent < 0.1 and lowerWick > upperWick
+isMorningStar = close[2] < open[2] and bodyPercent[1] < 0.1 and close > open and close > (close[2] + open[2]) / 2
+
+// Any bullish confirmation pattern
+bullishCandleConfirm = isBullishCandle and (isBullishEngulfing or isBullishPinBar or isHammer or isBullishDoji or isMorningStar or bodyPercent > 0.6)
+
+// Bearish candle patterns
+isBearishCandle = close < open
+isBearishEngulfing = close < open and close < low[1] and open > high[1]
+isBearishPinBar = upperWick > (bodySize * 2) and lowerWick < bodySize and close < open
+isShootingStar = upperWick > (bodySize * 2) and lowerWick < (bodySize * 0.5) and bodyPercent < 0.4
+isBearishDoji = bodyPercent < 0.1 and upperWick > lowerWick
+isEveningStar = close[2] > open[2] and bodyPercent[1] < 0.1 and close < open and close < (close[2] + open[2]) / 2
+
+// Any bearish confirmation pattern
+bearishCandleConfirm = isBearishCandle and (isBearishEngulfing or isBearishPinBar or isShootingStar or isBearishDoji or isEveningStar or bodyPercent > 0.6)
+
+// Candle filter (or bypass if disabled)
+bullCandleFilter = useCandleConfirm ? bullishCandleConfirm : true
+bearCandleFilter = useCandleConfirm ? bearishCandleConfirm : true
+
+// ============================================================================
+// ATR TREND CALCULATION
+// ============================================================================
+
+// Calculate ATR
+atrValue = ta.atr(atrLength)
+
+// Highest High / Lowest Low
+lower = ta.lowest(low, atrLength)
+upper = ta.highest(high, atrLength)
+
+// Trend direction
+direction = upper > upper[1] ? "up" : lower < lower[1] ? "down" : "neutral"
+
+// Main ATR Trend
+var float atrTrend = 0.0
+atr = atrValue * atrMulti
+
+if direction == "up"
+    atrTrend := low - atr
+    if atrTrend < atrTrend[1]
+        atrTrend := atrTrend[1]
+if direction == "down"
+    atrTrend := high + atr
+    if atrTrend > atrTrend[1]
+        atrTrend := atrTrend[1]
+if direction == "neutral"
+    atrTrend := atrTrend[1]
+
+// Fast ATR Trend
+var float fastAtrTrend = 0.0
+fastAtr = atrValue * fastAtrMulti
+
+if direction == "up"
+    fastAtrTrend := low - fastAtr
+    if fastAtrTrend < fastAtrTrend[1]
+        fastAtrTrend := fastAtrTrend[1]
+if direction == "down"
+    fastAtrTrend := high + fastAtr
+    if fastAtrTrend > fastAtrTrend[1]
+        fastAtrTrend := fastAtrTrend[1]
+if direction == "neutral"
+    fastAtrTrend := fastAtrTrend[1]
+
+// Trend conditions
+priceAboveATR = close > atrTrend
+priceBelowATR = close < atrTrend
+priceAboveFastATR = close > fastAtrTrend
+priceBelowFastATR = close < fastAtrTrend
+
+// Combined ATR filter
+bullishATR = priceAboveATR and priceAboveFastATR
+bearishATR = priceBelowATR and priceBelowFastATR
+
+// ============================================================================
+// DIVERGENCE DETECTION
+// ============================================================================
+
+// Pivot Points
+float ph = ta.pivothigh(high, prd, prd)
+float pl = ta.pivotlow(low, prd, prd)
+
+// Arrays for pivot tracking
+var ph_positions = array.new_int(20, 0)
+var pl_positions = array.new_int(20, 0)
+var ph_vals = array.new_float(20, 0.0)
+var pl_vals = array.new_float(20, 0.0)
+
+// Add PHs to array
+if not na(ph)
+    array.unshift(ph_positions, bar_index)
+    array.unshift(ph_vals, ph)
+    if array.size(ph_positions) > 20
+        array.pop(ph_positions)
+        array.pop(ph_vals)
+
+// Add PLs to array
+if not na(pl)
+    array.unshift(pl_positions, bar_index)
+    array.unshift(pl_vals, pl)
+    if array.size(pl_positions) > 20
+        array.pop(pl_positions)
+        array.pop(pl_vals)
+
+// Function to detect bullish divergence (price lower low, indicator higher low)
+detectBullishDiv(src) =>
+    divFound = false
+    divLen = 0
+    if src > src[1] or close > close[1]
+        for x = 0 to maxpp - 1
+            pos = array.get(pl_positions, x)
+            if pos == 0
+                break
+            len = bar_index - pos + prd
+            if len > maxbars
+                break
+            if len > 5
+                plVal = array.get(pl_vals, x)
+                // Regular bullish: price lower low, indicator higher low
+                if searchdiv != "Hidden" and src[1] > src[len] and close[1] < plVal
+                    divFound := true
+                    divLen := len
+                    break
+                // Hidden bullish: price higher low, indicator lower low
+                if searchdiv != "Regular" and src[1] < src[len] and close[1] > plVal
+                    divFound := true
+                    divLen := len
+                    break
+    [divFound, divLen]
+
+// Function to detect bearish divergence (price higher high, indicator lower high)
+detectBearishDiv(src) =>
+    divFound = false
+    divLen = 0
+    if src < src[1] or close < close[1]
+        for x = 0 to maxpp - 1
+            pos = array.get(ph_positions, x)
+            if pos == 0
+                break
+            len = bar_index - pos + prd
+            if len > maxbars
+                break
+            if len > 5
+                phVal = array.get(ph_vals, x)
+                // Regular bearish: price higher high, indicator lower high
+                if searchdiv != "Hidden" and src[1] < src[len] and close[1] > phVal
+                    divFound := true
+                    divLen := len
+                    break
+                // Hidden bearish: price lower high, indicator higher high
+                if searchdiv != "Regular" and src[1] > src[len] and close[1] < phVal
+                    divFound := true
+                    divLen := len
+                    break
+    [divFound, divLen]
+
+// Check divergences for each indicator using if statements (Pine Script doesn't allow ternary with tuples)
+
+// RSI Divergences
+var bool rsiBullDiv = false
+var int rsiBullLen = 0
+var bool rsiBearDiv = false
+var int rsiBearLen = 0
+if calcRSI
+    [_rsiBullDiv, _rsiBullLen] = detectBullishDiv(rsiValue)
+    [_rsiBearDiv, _rsiBearLen] = detectBearishDiv(rsiValue)
+    rsiBullDiv := _rsiBullDiv
+    rsiBullLen := _rsiBullLen
+    rsiBearDiv := _rsiBearDiv
+    rsiBearLen := _rsiBearLen
+else
+    rsiBullDiv := false
+    rsiBearDiv := false
+
+// MACD Divergences
+var bool macdBullDiv = false
+var int macdBullLen = 0
+var bool macdBearDiv = false
+var int macdBearLen = 0
+if calcMACD
+    [_macdBullDiv, _macdBullLen] = detectBullishDiv(macdLine)
+    [_macdBearDiv, _macdBearLen] = detectBearishDiv(macdLine)
+    macdBullDiv := _macdBullDiv
+    macdBullLen := _macdBullLen
+    macdBearDiv := _macdBearDiv
+    macdBearLen := _macdBearLen
+else
+    macdBullDiv := false
+    macdBearDiv := false
+
+// MACD Histogram Divergences
+var bool histBullDiv = false
+var int histBullLen = 0
+var bool histBearDiv = false
+var int histBearLen = 0
+if calcMACDHist
+    [_histBullDiv, _histBullLen] = detectBullishDiv(histLine)
+    [_histBearDiv, _histBearLen] = detectBearishDiv(histLine)
+    histBullDiv := _histBullDiv
+    histBullLen := _histBullLen
+    histBearDiv := _histBearDiv
+    histBearLen := _histBearLen
+else
+    histBullDiv := false
+    histBearDiv := false
+
+// Stochastic Divergences
+var bool stochBullDiv = false
+var int stochBullLen = 0
+var bool stochBearDiv = false
+var int stochBearLen = 0
+if calcStoch
+    [_stochBullDiv, _stochBullLen] = detectBullishDiv(stochK)
+    [_stochBearDiv, _stochBearLen] = detectBearishDiv(stochK)
+    stochBullDiv := _stochBullDiv
+    stochBullLen := _stochBullLen
+    stochBearDiv := _stochBearDiv
+    stochBearLen := _stochBearLen
+else
+    stochBullDiv := false
+    stochBearDiv := false
+
+// CCI Divergences
+var bool cciBullDiv = false
+var int cciBullLen = 0
+var bool cciBearDiv = false
+var int cciBearLen = 0
+if calcCCI
+    [_cciBullDiv, _cciBullLen] = detectBullishDiv(cciValue)
+    [_cciBearDiv, _cciBearLen] = detectBearishDiv(cciValue)
+    cciBullDiv := _cciBullDiv
+    cciBullLen := _cciBullLen
+    cciBearDiv := _cciBearDiv
+    cciBearLen := _cciBearLen
+else
+    cciBullDiv := false
+    cciBearDiv := false
+
+// Momentum Divergences
+var bool momBullDiv = false
+var int momBullLen = 0
+var bool momBearDiv = false
+var int momBearLen = 0
+if calcMOM
+    [_momBullDiv, _momBullLen] = detectBullishDiv(momValue)
+    [_momBearDiv, _momBearLen] = detectBearishDiv(momValue)
+    momBullDiv := _momBullDiv
+    momBullLen := _momBullLen
+    momBearDiv := _momBearDiv
+    momBearLen := _momBearLen
+else
+    momBullDiv := false
+    momBearDiv := false
+
+// MFI Divergences
+var bool mfiBullDiv = false
+var int mfiBullLen = 0
+var bool mfiBearDiv = false
+var int mfiBearLen = 0
+if calcMFI
+    [_mfiBullDiv, _mfiBullLen] = detectBullishDiv(mfiValue)
+    [_mfiBearDiv, _mfiBearLen] = detectBearishDiv(mfiValue)
+    mfiBullDiv := _mfiBullDiv
+    mfiBullLen := _mfiBullLen
+    mfiBearDiv := _mfiBearDiv
+    mfiBearLen := _mfiBearLen
+else
+    mfiBullDiv := false
+    mfiBearDiv := false
+
+// Combined divergence signals (instant detection)
+anyBullishDivNow = rsiBullDiv or macdBullDiv or histBullDiv or stochBullDiv or cciBullDiv or momBullDiv or mfiBullDiv
+anyBearishDivNow = rsiBearDiv or macdBearDiv or histBearDiv or stochBearDiv or cciBearDiv or momBearDiv or mfiBearDiv
+
+// Track when divergence was last detected (for validity period)
+var int lastBullDivBar = na
+var int lastBearDivBar = na
+var int lastBullDivCount = 0
+var int lastBearDivCount = 0
+
+// Update divergence tracking when new divergence is detected
+if anyBullishDivNow
+    lastBullDivBar := bar_index
+    lastBullDivCount := (rsiBullDiv ? 1 : 0) + (macdBullDiv ? 1 : 0) + (histBullDiv ? 1 : 0) + (stochBullDiv ? 1 : 0) + (cciBullDiv ? 1 : 0) + (momBullDiv ? 1 : 0) + (mfiBullDiv ? 1 : 0)
+
+if anyBearishDivNow
+    lastBearDivBar := bar_index
+    lastBearDivCount := (rsiBearDiv ? 1 : 0) + (macdBearDiv ? 1 : 0) + (histBearDiv ? 1 : 0) + (stochBearDiv ? 1 : 0) + (cciBearDiv ? 1 : 0) + (momBearDiv ? 1 : 0) + (mfiBearDiv ? 1 : 0)
+
+// Check if divergence is still valid (within validity period)
+bullDivValid = not na(lastBullDivBar) and (bar_index - lastBullDivBar) <= divValidBars
+bearDivValid = not na(lastBearDivBar) and (bar_index - lastBearDivBar) <= divValidBars
+
+// Bars since last divergence
+barsSinceBullDiv = not na(lastBullDivBar) ? bar_index - lastBullDivBar : na
+barsSinceBearDiv = not na(lastBearDivBar) ? bar_index - lastBearDivBar : na
+
+// Current divergence count (use last valid count)
+bullDivCount = bullDivValid ? lastBullDivCount : 0
+bearDivCount = bearDivValid ? lastBearDivCount : 0
+
+// ============================================================================
+// ENTRY SIGNALS (with all precision filters)
+// ============================================================================
+
+// Check minimum divergences requirement
+enoughBullDivs = bullDivCount >= minDivergences
+enoughBearDivs = bearDivCount >= minDivergences
+
+// BUY Signal: All conditions must be met
+// 1. Valid Bullish Divergence (within X bars)
+// 2. Minimum number of divergences met
+// 3. Price above both ATRs
+// 4. RSI > 50
+// 5. Volume filter (if enabled)
+// 6. Candle confirmation (if enabled)
+// 7. EMA trend filter (if enabled)
+buySignal = bullDivValid and enoughBullDivs and bullishATR and rsiAbove50 and volumeFilter and bullCandleFilter and emaBullFilter
+
+// SELL Signal: All conditions must be met
+// 1. Valid Bearish Divergence (within X bars)
+// 2. Minimum number of divergences met
+// 3. Price below both ATRs
+// 4. RSI < 50
+// 5. Volume filter (if enabled)
+// 6. Candle confirmation (if enabled)
+// 7. EMA trend filter (if enabled)
+sellSignal = bearDivValid and enoughBearDivs and bearishATR and rsiBelow50 and volumeFilter and bearCandleFilter and emaBearFilter
+
+// Track active trade for TP/SL display
+var float entryPrice = na
+var bool inLongTrade = false
+var bool inShortTrade = false
+var float slLevel = na
+var float tp1Level = na
+var float tp2Level = na
+var float tp3Level = na
+
+// Update trade state
+if buySignal and not inLongTrade
+    entryPrice := close
+    inLongTrade := true
+    inShortTrade := false
+    slLevel := close - (atrValue * slMulti)
+    tp1Level := close + (atrValue * tp1Multi)
+    tp2Level := close + (atrValue * tp2Multi)
+    tp3Level := close + (atrValue * tp3Multi)
+
+if sellSignal and not inShortTrade
+    entryPrice := close
+    inShortTrade := true
+    inLongTrade := false
+    slLevel := close + (atrValue * slMulti)
+    tp1Level := close - (atrValue * tp1Multi)
+    tp2Level := close - (atrValue * tp2Multi)
+    tp3Level := close - (atrValue * tp3Multi)
+
+// Check if SL or TP3 hit to exit trade
+if inLongTrade
+    if low <= slLevel or high >= tp3Level
+        inLongTrade := false
+        entryPrice := na
+
+if inShortTrade
+    if high >= slLevel or low <= tp3Level
+        inShortTrade := false
+        entryPrice := na
+
+// ============================================================================
+// PLOTTING
+// ============================================================================
+
+// Plot ATR Trend Lines
+atrColor = close > atrTrend ? bullColor : bearColor
+fastAtrColor = close > fastAtrTrend ? color.new(bullColor, 50) : color.new(bearColor, 50)
+
+plot(showATR ? atrTrend : na, title = "ATR Trend", color = atrColor, linewidth = 2)
+plot(showFastATR ? fastAtrTrend : na, title = "Fast ATR Trend", color = fastAtrColor, linewidth = 1, style = plot.style_line)
+
+// Plot EMA Lines
+plot(showEMAs ? emaFast : na, title = "EMA Fast", color = color.new(#2196F3, 30), linewidth = 1)
+plot(showEMAs ? emaSlow : na, title = "EMA Slow", color = color.new(#FF9800, 30), linewidth = 2)
+
+// Plot Entry Signals
+plotshape(showSignals and buySignal, title = "BUY Signal", text = "BUY", textcolor = color.white, style = shape.labelup, location = location.belowbar, color = bullColor, size = size.small)
+plotshape(showSignals and sellSignal, title = "SELL Signal", text = "SELL", textcolor = color.white, style = shape.labeldown, location = location.abovebar, color = bearColor, size = size.small)
+
+// Plot TP/SL Levels
+plot(showTPSL and inLongTrade ? slLevel : na, title = "Stop Loss (Long)", color = bearColor, style = plot.style_linebr, linewidth = 1)
+plot(showTPSL and inLongTrade ? tp1Level : na, title = "TP1 (Long)", color = color.new(bullColor, 60), style = plot.style_linebr, linewidth = 1)
+plot(showTPSL and inLongTrade ? tp2Level : na, title = "TP2 (Long)", color = color.new(bullColor, 40), style = plot.style_linebr, linewidth = 1)
+plot(showTPSL and inLongTrade ? tp3Level : na, title = "TP3 (Long)", color = bullColor, style = plot.style_linebr, linewidth = 1)
+
+plot(showTPSL and inShortTrade ? slLevel : na, title = "Stop Loss (Short)", color = bearColor, style = plot.style_linebr, linewidth = 1)
+plot(showTPSL and inShortTrade ? tp1Level : na, title = "TP1 (Short)", color = color.new(bullColor, 60), style = plot.style_linebr, linewidth = 1)
+plot(showTPSL and inShortTrade ? tp2Level : na, title = "TP2 (Short)", color = color.new(bullColor, 40), style = plot.style_linebr, linewidth = 1)
+plot(showTPSL and inShortTrade ? tp3Level : na, title = "TP3 (Short)", color = bullColor, style = plot.style_linebr, linewidth = 1)
+
+// ============================================================================
+// DASHBOARD
+// ============================================================================
+
+var table dashboard = table.new(position.top_right, 2, 18, bgcolor = color.new(#1e1e1e, 10), border_color = #363636, border_width = 1)
+
+if showDashboard and barstate.islast
+    // Title
+    table.cell(dashboard, 0, 0, text = "GOLD STRATEGY PRO", text_color = #FFD700, text_halign = text.align_center, bgcolor = #2a2a2a)
+    table.merge_cells(dashboard, 0, 0, 1, 0)
+
+    // Filters Section
+    table.cell(dashboard, 0, 1, text = "─── Filters Status ───", text_color = color.gray, text_halign = text.align_left)
+    table.merge_cells(dashboard, 0, 1, 1, 1)
+
+    // EMA Trend Filter
+    emaTrendText = emaBullish ? "BULLISH" : emaBearish ? "BEARISH" : "NEUTRAL"
+    emaTrendColor = emaBullish ? bullColor : emaBearish ? bearColor : neutralColor
+    emaIcon = useEMAFilter ? (emaBullish or emaBearish ? "✓" : "✗") : "○"
+    table.cell(dashboard, 0, 2, text = emaIcon + " EMA Trend:", text_color = color.white, text_halign = text.align_left)
+    table.cell(dashboard, 1, 2, text = emaTrendText, text_color = emaTrendColor)
+
+    // Volume Filter
+    volText = volumeHigh ? "HIGH" : "LOW"
+    volColor = volumeHigh ? bullColor : neutralColor
+    volIcon = useVolumeFilter ? (volumeHigh ? "✓" : "✗") : "○"
+    table.cell(dashboard, 0, 3, text = volIcon + " Volume:", text_color = color.white, text_halign = text.align_left)
+    table.cell(dashboard, 1, 3, text = volText + " (" + str.tostring(volume/volumeAvg, "#.##") + "x)", text_color = volColor)
+
+    // Candle Confirmation
+    candleText = bullishCandleConfirm ? "BULLISH" : bearishCandleConfirm ? "BEARISH" : "NONE"
+    candleColor = bullishCandleConfirm ? bullColor : bearishCandleConfirm ? bearColor : neutralColor
+    candleIcon = useCandleConfirm ? (bullishCandleConfirm or bearishCandleConfirm ? "✓" : "✗") : "○"
+    table.cell(dashboard, 0, 4, text = candleIcon + " Candle:", text_color = color.white, text_halign = text.align_left)
+    table.cell(dashboard, 1, 4, text = candleText, text_color = candleColor)
+
+    // RSI Status
+    rsiStatusColor = rsiAbove50 ? bullColor : bearColor
+    rsiStatus = rsiAbove50 ? "> 50" : "< 50"
+    table.cell(dashboard, 0, 5, text = "✓ RSI (" + str.tostring(rsiLength) + "):", text_color = color.white, text_halign = text.align_left)
+    table.cell(dashboard, 1, 5, text = str.tostring(rsiValue, "#.##") + " " + rsiStatus, text_color = rsiStatusColor)
+
+    // ATR Status
+    atrStatus = bullishATR ? "ABOVE" : bearishATR ? "BELOW" : "MIXED"
+    atrStatusColor = bullishATR ? bullColor : bearishATR ? bearColor : neutralColor
+    atrIcon = bullishATR or bearishATR ? "✓" : "✗"
+    table.cell(dashboard, 0, 6, text = atrIcon + " Price vs ATR:", text_color = color.white, text_halign = text.align_left)
+    table.cell(dashboard, 1, 6, text = atrStatus, text_color = atrStatusColor)
+
+    // Divergence Section
+    table.cell(dashboard, 0, 7, text = "─── Divergences ───", text_color = color.gray, text_halign = text.align_left)
+    table.merge_cells(dashboard, 0, 7, 1, 7)
+
+    // Minimum required
+    table.cell(dashboard, 0, 8, text = "Min Required:", text_color = color.white, text_halign = text.align_left)
+    table.cell(dashboard, 1, 8, text = str.tostring(minDivergences), text_color = color.white)
+
+    // Bullish Divergences with validity info
+    bullBarsRemaining = bullDivValid ? divValidBars - (bar_index - lastBullDivBar) : 0
+    bullDivText = bullDivValid ? str.tostring(bullDivCount) + "/" + str.tostring(minDivergences) + " (" + str.tostring(bullBarsRemaining) + " bars)" : "None"
+    bullDivColor = enoughBullDivs and bullDivValid ? bullColor : bullDivValid ? color.yellow : neutralColor
+    bullIcon = enoughBullDivs and bullDivValid ? "✓" : bullDivValid ? "△" : "✗"
+    table.cell(dashboard, 0, 9, text = bullIcon + " Bullish:", text_color = color.white, text_halign = text.align_left)
+    table.cell(dashboard, 1, 9, text = bullDivText, text_color = bullDivColor)
+
+    // Bearish Divergences with validity info
+    bearBarsRemaining = bearDivValid ? divValidBars - (bar_index - lastBearDivBar) : 0
+    bearDivText = bearDivValid ? str.tostring(bearDivCount) + "/" + str.tostring(minDivergences) + " (" + str.tostring(bearBarsRemaining) + " bars)" : "None"
+    bearDivColor = enoughBearDivs and bearDivValid ? bearColor : bearDivValid ? color.yellow : neutralColor
+    bearIcon = enoughBearDivs and bearDivValid ? "✓" : bearDivValid ? "△" : "✗"
+    table.cell(dashboard, 0, 10, text = bearIcon + " Bearish:", text_color = color.white, text_halign = text.align_left)
+    table.cell(dashboard, 1, 10, text = bearDivText, text_color = bearDivColor)
+
+    // Signal Section
+    table.cell(dashboard, 0, 11, text = "─── Signal ───", text_color = color.gray, text_halign = text.align_left)
+    table.merge_cells(dashboard, 0, 11, 1, 11)
+
+    signalText = buySignal ? "BUY SIGNAL" : sellSignal ? "SELL SIGNAL" : "WAITING..."
+    signalColor = buySignal ? bullColor : sellSignal ? bearColor : neutralColor
+    table.cell(dashboard, 0, 12, text = "Current:", text_color = color.white, text_halign = text.align_left)
+    table.cell(dashboard, 1, 12, text = signalText, text_color = signalColor)
+
+    // Trade Status
+    tradeText = inLongTrade ? "LONG ACTIVE" : inShortTrade ? "SHORT ACTIVE" : "NO TRADE"
+    tradeColor = inLongTrade ? bullColor : inShortTrade ? bearColor : neutralColor
+    table.cell(dashboard, 0, 13, text = "Trade:", text_color = color.white, text_halign = text.align_left)
+    table.cell(dashboard, 1, 13, text = tradeText, text_color = tradeColor)
+
+    // TP/SL Levels if in trade
+    if inLongTrade or inShortTrade
+        table.cell(dashboard, 0, 14, text = "─── TP/SL ───", text_color = color.gray, text_halign = text.align_left)
+        table.merge_cells(dashboard, 0, 14, 1, 14)
+        table.cell(dashboard, 0, 15, text = "Entry:", text_color = color.white, text_halign = text.align_left)
+        table.cell(dashboard, 1, 15, text = str.tostring(entryPrice, "#.##"), text_color = color.white)
+        table.cell(dashboard, 0, 16, text = "SL:", text_color = color.white, text_halign = text.align_left)
+        table.cell(dashboard, 1, 16, text = str.tostring(slLevel, "#.##"), text_color = bearColor)
+        table.cell(dashboard, 0, 17, text = "TP1/TP2/TP3:", text_color = color.white, text_halign = text.align_left)
+        table.cell(dashboard, 1, 17, text = str.tostring(tp1Level, "#.##") + "/" + str.tostring(tp2Level, "#.##") + "/" + str.tostring(tp3Level, "#.##"), text_color = bullColor)
+
+// ============================================================================
+// ALERTS
+// ============================================================================
+
+alertcondition(buySignal, title = "BUY Signal", message = "GOLD BUY: Bullish divergence + Price above ATR + RSI > 50. Entry: {{close}}")
+alertcondition(sellSignal, title = "SELL Signal", message = "GOLD SELL: Bearish divergence + Price below ATR + RSI < 50. Entry: {{close}}")
+alertcondition(anyBullishDivNow, title = "Bullish Divergence", message = "Bullish divergence detected on GOLD")
+alertcondition(anyBearishDivNow, title = "Bearish Divergence", message = "Bearish divergence detected on GOLD")
+
+// Combined alert
+alertcondition(buySignal or sellSignal, title = "Any Trade Signal", message = "GOLD Trade Signal: {{close}}")
