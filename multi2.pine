@@ -7,16 +7,56 @@ indicator(title="Multi-Indicator Suite: RSI + Momentum + ADX + WaveTrend", short
 
 // RSI Inputs
 show_RSI = input.bool(true, title="Show RSI Divergence", group="RSI Divergence")
-len = input.int(title="RSI Period", minval=1, defval=9, group="RSI Divergence")
+_rsi_len_inp = input.int(title="RSI Period", minval=1, defval=9, group="RSI Divergence")
 src = input(title="RSI Source", defval=close, group="RSI Divergence")
-lbR = input(title="Pivot Lookback Right", defval=3, display = display.data_window, group="RSI Divergence")
-lbL = input(title="Pivot Lookback Left", defval=3, display = display.data_window, group="RSI Divergence")
+_lbR_inp = input(title="Pivot Lookback Right", defval=3, display = display.data_window, group="RSI Divergence")
+_lbL_inp = input(title="Pivot Lookback Left", defval=3, display = display.data_window, group="RSI Divergence")
 rangeUpper = input(title="Max of Lookback Range", defval=60, display = display.data_window, group="RSI Divergence")
 rangeLower = input(title="Min of Lookback Range", defval=5, display = display.data_window, group="RSI Divergence")
 plotBull = input(title="Plot Bullish", defval=true, display = display.data_window, group="RSI Divergence")
 plotHiddenBull = input(title="Plot Hidden Bullish", defval=false, display = display.data_window, group="RSI Divergence")
 plotBear = input(title="Plot Bearish", defval=true, display = display.data_window, group="RSI Divergence")
 plotHiddenBear = input(title="Plot Hidden Bearish", defval=false, display = display.data_window, group="RSI Divergence")
+
+// Squeeze _inp declarations (used in AUTO CONFIG below)
+_sqz_len_inp_pre  = input.int(12, title="BB Length",  group="Squeeze Momentum")
+_kc_len_inp_pre   = input.int(12, title="KC Length",  group="Squeeze Momentum")
+
+// ADX _inp declarations (used in AUTO CONFIG below)
+int _dilen_inp_pre    = input.int(7,  title="DI Length",    minval=1,         group="ADX/DMI")
+int _adxlen_inp_pre   = input.int(7,  title="ADX Smoothing",minval=1,maxval=50,group="ADX/DMI")
+int _keylevel_inp_pre = input.int(20, title="Key level for ADX", minval=1,    group="ADX/DMI")
+
+// WaveTrend _inp declaration (used in AUTO CONFIG below)
+int _n2_wt_inp_pre = input.int(14, title="Average Length", group="WaveTrend")
+
+//══════════════════════════════════════════════════════════════════════════════
+// AUTO CONFIG PER TIMEFRAME
+//══════════════════════════════════════════════════════════════════════════════
+autoConfig = input.bool(defval = true, title = "Auto-Configure per Timeframe", group = "═══ AUTO CONFIG ═══", tooltip = "Ajusta automáticamente RSI, Squeeze, ADX y WaveTrend según la temporalidad. Desactiva para usar valores manuales.")
+
+// Timeframe detection (in seconds)
+// 1m=60  3m=180  5m=300  15m=900  30m=1800  1H=3600
+_tf = timeframe.in_seconds()
+
+// ── RSI ───────────────────────────────────────────────────────────────────────
+len         = autoConfig ? (_tf <= 180 ? 9  : _tf <= 300 ? 11 : 14)                        : _rsi_len_inp
+lbR         = autoConfig ? (_tf <= 300 ? 3  : 5)                                            : _lbR_inp
+lbL         = autoConfig ? (_tf <= 300 ? 3  : 5)                                            : _lbL_inp
+
+// ── Squeeze Momentum ─────────────────────────────────────────────────────────
+length_sqz   = autoConfig ? (_tf <= 180 ? 12 : _tf <= 300 ? 14 : 20)                       : _sqz_len_inp_pre
+lengthKC_sqz = autoConfig ? (_tf <= 180 ? 12 : _tf <= 300 ? 14 : 20)                       : _kc_len_inp_pre
+
+// ── ADX/DMI ───────────────────────────────────────────────────────────────────
+dilen_adx    = autoConfig ? (_tf <= 180 ? 7  : _tf <= 300 ? 8  : _tf <= 900 ? 10 : 14)    : _dilen_inp_pre
+adxlen_adx   = autoConfig ? (_tf <= 180 ? 7  : _tf <= 300 ? 8  : _tf <= 900 ? 10 : 14)    : _adxlen_inp_pre
+keyLevel_adx = autoConfig ? (_tf <= 300 ? 20 : _tf <= 900 ? 22 : 25)                       : _keylevel_inp_pre
+
+// ── WaveTrend ─────────────────────────────────────────────────────────────────
+n2_wt        = autoConfig ? (_tf <= 300 ? 14 : 21)                                          : _n2_wt_inp_pre
+
+//══════════════════════════════════════════════════════════════════════════════
 
 // RSI Colors
 bearColor = color.red
@@ -193,9 +233,7 @@ alertcondition(hiddenBearCondAlert, title='Hidden Bearish Divergence', message='
 
 // Momentum Inputs
 show_Momentum = input.bool(true, title="Show Squeeze Momentum", group="Squeeze Momentum")
-length_sqz = input.int(12, title="BB Length", group="Squeeze Momentum")
 mult_bb = input.float(2.0, title="BB MultFactor", group="Squeeze Momentum")
-lengthKC_sqz = input.int(12, title="KC Length", group="Squeeze Momentum")
 multKC_sqz = input.float(1.5, title="KC MultFactor", group="Squeeze Momentum")
 useTrueRange_sqz = input.bool(true, title="Use TrueRange (KC)", group="Squeeze Momentum")
 norm_length_sqz = input.int(100, title="Normalization Lookback", group="Squeeze Momentum", tooltip="Bars used to normalize Momentum height. Higher = more stable scale.")
@@ -264,11 +302,8 @@ ma_adx(_type, _source, _length) =>
 // ADX Inputs
 show_ADX_Indicator = input.bool(true, title="Show ADX/DMI Indicator", group="ADX/DMI")
 bool show_DMI_adx = input.bool(true, 'Show DMI', group="ADX/DMI")
-int dilen_adx = input.int(7, 'DI Length', minval = 1, group="ADX/DMI")
 string type_ma_adx = input.string('RMA', 'Type', options = ['ALMA', 'WMA', 'EMA', 'SMA', 'RMA'], group="ADX/DMI")
 bool show_ADX_adx = input.bool(true, 'Show ADX', group="ADX/DMI")
-int adxlen_adx = input.int(7, 'ADX Smoothing', minval = 1, maxval = 50, group="ADX/DMI")
-int keyLevel_adx = input.int(20, 'Key level for ADX', minval = 1, group="ADX/DMI")
 
 // ADX Calculations
 
@@ -320,7 +355,7 @@ bgcolor(show_ADX_Indicator ? ADX_bgcolor_adx : na, title = 'ADX Trend Background
 // WaveTrend Inputs
 show_WaveTrend = input.bool(true, title="Show WaveTrend", group="WaveTrend")
 n1_wt = input.int(10, "Channel Length", group="WaveTrend")
-n2_wt = input.int(14, "Average Length", group="WaveTrend")
+// n2_wt is set by AUTO CONFIG above
 obLevel1_wt = input.int(60, "Over Bought Level 1", group="WaveTrend")
 obLevel2_wt = input.int(42, "Over Bought Level 2", group="WaveTrend")
 osLevel1_wt = input.int(-60, "Over Sold Level 1", group="WaveTrend")

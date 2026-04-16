@@ -4,7 +4,7 @@
 // Based on ATR Trend by Daniel_Ge + Mxwll Suite by Mxwll Capital
 
 //@version=6
-indicator("Algo1.0", overlay = true, max_labels_count = 500, max_lines_count = 500, max_boxes_count = 500, max_bars_back = 500)
+indicator("Algo2.0", overlay = true, max_labels_count = 500, max_lines_count = 500, max_boxes_count = 500, max_bars_back = 500)
 
 // ============================================================================
 // MODULE 1: ATR TREND - ALL CONFIGURATIONS
@@ -70,7 +70,7 @@ showLast = input.int(defval = 5, title = "Max Order Blocks", minval = 0, maxval 
 // Fair Value Gaps (Phase 3)
 showFVG = input.bool(defval = true, title = "Show Fair Value Gaps", group = "Mxwll: FVG", tooltip = "Display Fair Value Gaps (price inefficiencies)")
 contract = input.bool(defval = false, title = "Contract Violated FVG", group = "Mxwll: FVG", tooltip = "Reduce FVG size when partially filled")
-closeOnly = input.bool(defval = false, title = "Show Closest FVG Only", group = "Mxwll: FVG", tooltip = "Display only the nearest up/down FVG to current price")
+maxFVG = input.int(defval = 3, title = "Max FVGs per Side", minval = 0, group = "Mxwll: FVG", tooltip = "Max FVGs a mostrar por lado (bullish/bearish) más cercanos al precio. 0 = mostrar todos.")
 fvgcol = input.color(defval = #F2B807, title = "FVG Color", group = "Mxwll: FVG")
 fvgtra = input.int(defval = 80, minval = 0, maxval = 100, title = "FVG Transparency", group = "Mxwll: FVG")
 
@@ -194,6 +194,27 @@ rsi_neutral_color = input.color(defval = color.gray, title = "Neutral Color", gr
 rsi_overbought_color = input.color(defval = color.red, title = "Overbought Color", group = "RSI Dashboard: Colors")
 
 // ============================================================================
+// AUTO CONFIG PER TIMEFRAME
+// ============================================================================
+autoConfig = input.bool(defval = true, title = "Auto-Configure per Timeframe", group = "═══ AUTO CONFIG ═══", tooltip = "Ajusta automáticamente ATR Weight, Sensibilidad y Divergencias según la temporalidad del gráfico. Desactiva para usar valores manuales.")
+
+// Timeframe detection (in seconds)
+_tf = timeframe.in_seconds()
+// 1m=60  3m=180  5m=300  15m=900  30m=1800  1H=3600  4H=14400
+
+// Effective ATR parameters
+eff_atr_multi   = autoConfig ? (_tf <= 60 ? 6.5 : _tf <= 180 ? 7.0 : _tf <= 300 ? 7.5 : _tf <= 900 ? 8.0 : _tf <= 1800 ? 8.5 : 9.0) : atr_multi
+eff_atr_length  = autoConfig ? (_tf <= 300 ? 1   : _tf <= 900 ? 2   : 3)                                                               : atr_length
+
+// Effective SMC sensitivity
+eff_extSens     = autoConfig ? (_tf <= 300 ? 10  : _tf <= 1800 ? 25  : 50)                                                             : extSens
+eff_intSens     = autoConfig ? (_tf <= 180 ? 3   : _tf <= 900  ? 5   : 8)                                                              : intSens
+
+// Effective divergence parameters
+eff_div_prd     = autoConfig ? (_tf <= 60 ? 3 : _tf <= 180 ? 4 : _tf <= 300 ? 5 : _tf <= 900 ? 5 : 7)                                : div_prd
+eff_div_maxbars = autoConfig ? (_tf <= 60 ? 50 : _tf <= 180 ? 60 : _tf <= 300 ? 75 : _tf <= 900 ? 100 : _tf <= 1800 ? 150 : 200)     : div_maxbars
+
+// ============================================================================
 // ATR TREND IMPLEMENTATION
 // ============================================================================
 
@@ -301,20 +322,20 @@ atr_sell_channel_signal = float(na)
 
 if enableATR
     // Calculate ATR values
-    atr = get_atr(5, atr_type) * atr_multi
+    atr = get_atr(5, atr_type) * eff_atr_multi
     fast_atr = get_atr(5, atr_type) * fast_atr_multi
     
     // Highest/Lowest of source
-    lower = ta.lowest(atr_src, atr_length)
-    upper = ta.highest(atr_src, atr_length)
+    lower = ta.lowest(atr_src, eff_atr_length)
+    upper = ta.highest(atr_src, eff_atr_length)
     
     // DC Switch
     dc_switch = ta.barssince(atr_src >= upper[1]) <= ta.barssince(atr_src <= lower[1]) ? lower : upper
     
     // Highest High/Lowest Low
     if atr_src_hl
-        lower := ta.lowest(low, atr_length)
-        upper := ta.highest(high, atr_length)
+        lower := ta.lowest(low, eff_atr_length)
+        upper := ta.highest(high, eff_atr_length)
         dc_switch := ta.barssince(high >= upper[1]) <= ta.barssince(low <= lower[1]) ? lower : upper
     
     // Trend direction
@@ -733,8 +754,8 @@ var array<box> lowBlock = array.new<box>()
 
 if enableMxwll
     // Calculate pivots for external and internal structure
-    [bigUpper, bigLower] = calculatePivots(extSens)
-    [smallUpper, smallLower] = calculatePivots(intSens)
+    [bigUpper, bigLower] = calculatePivots(eff_extSens)
+    [smallUpper, smallLower] = calculatePivots(eff_intSens)
     
     // ========================================================================
     // EXTERNAL STRUCTURE (Major Swings)
@@ -743,7 +764,7 @@ if enableMxwll
     // Detect Higher High (HH) or Lower High (LH)
     if bigUpper != 0
         ext_upside := true
-        x1 = bar_index - extSens
+        x1 = bar_index - eff_extSens
         
         // Determine if this is a HH or LH
         txt = bigUpper > ext_upaxis ? 'HH' : 'LH'
@@ -769,7 +790,7 @@ if enableMxwll
     // Detect Higher Low (HL) or Lower Low (LL)
     if bigLower != 0
         ext_downside := true
-        x1 = bar_index - extSens
+        x1 = bar_index - eff_extSens
         
         // Determine if this is a LL or HL
         txt = bigLower < ext_dnaxis ? "LL" : "HL"
@@ -832,13 +853,13 @@ if enableMxwll
         if smallUpper != 0
             int_upside := true
             int_upaxis := smallUpper
-            int_upaxis_bar := bar_index - intSens
+            int_upaxis_bar := bar_index - eff_intSens
         
         // Detect internal swing low
         if smallLower != 0
             int_downside := true
             int_dnaxis := smallLower
-            int_dnaxis_bar := bar_index - intSens
+            int_dnaxis_bar := bar_index - eff_intSens
         
         // Internal structure breaks (I-BoS / I-CHoCH)
         if ta.crossover(close, int_upaxis) and int_upside
@@ -942,7 +963,7 @@ fvg(direction) =>
             y1 := fvgMat.get(2, 2)  // high of candle 2 (oldest)
         
         // Determine color
-        col = closeOnly ? color.new(#00000000, 100) : color.new(fvgcol, fvgtra)
+        col = maxFVG > 0 ? color.new(#00000000, 100) : color.new(fvgcol, fvgtra)
         
         // Create FVG box (using time from middle candle)
         fvgDrawings.push(
@@ -991,50 +1012,38 @@ if enableMxwll and showFVG
                     getfvg.set_top(low)
     
     // ========================================================================
-    // SHOW ONLY CLOSEST FVG (if enabled)
+    // SHOW N CLOSEST FVGs (if maxFVG > 0)
     // ========================================================================
-    if closeOnly and barstate.islast
-        var minDist = matrix.new<float>(1, 2, 20e20)
-        
-        // Find closest bearish FVG
+    if maxFVG > 0 and barstate.islast
+        // --- Bearish FVGs ---
         if fvgDn.size() > 0
-            for i = fvgDn.size() - 1 to 0
-                getBottom = fvgDn.get(i).get_bottom()
-                
-                minDist.set(0, 1, math.min(minDist.get(0, 1), math.abs(close - getBottom)))
-                
-                if math.abs(close - getBottom) == minDist.get(0, 1)
-                    minDist.set(0, 0, i)
-                
-                // Hide all FVGs initially
-                fvgDn.get(i).set_right(fvgDn.get(i).get_left())
-            
-            // Show only the closest one
-            fvgDn.get(int(minDist.get(0, 0))).set_bgcolor(color.new(fvgcol, fvgtra))
-            fvgDn.get(int(minDist.get(0, 0))).set_border_color(color.new(fvgcol, fvgtra))
-            fvgDn.get(int(minDist.get(0, 0))).set_right(last_bar_time)
-        
-        // Reset minDist for bullish FVG search
-        minDist.set(0, 0, 0)
-        minDist.set(0, 1, 20e20)
-        
-        // Find closest bullish FVG
+            dists_dn = array.new<float>()
+            for i = 0 to fvgDn.size() - 1
+                dists_dn.push(math.abs(close - fvgDn.get(i).get_bottom()))
+                fvgDn.get(i).set_right(fvgDn.get(i).get_left())  // hide all initially
+            dists_dn.sort()
+            threshold_dn = dists_dn.get(math.min(maxFVG - 1, dists_dn.size() - 1))
+            for i = 0 to fvgDn.size() - 1
+                getfvg = fvgDn.get(i)
+                if math.abs(close - getfvg.get_bottom()) <= threshold_dn
+                    getfvg.set_bgcolor(color.new(fvgcol, fvgtra))
+                    getfvg.set_border_color(color.new(fvgcol, fvgtra))
+                    getfvg.set_right(last_bar_time)
+
+        // --- Bullish FVGs ---
         if fvgUp.size() > 0
-            for i = fvgUp.size() - 1 to 0
-                getTop = fvgUp.get(i).get_top()
-                
-                minDist.set(0, 1, math.min(minDist.get(0, 1), math.abs(close - getTop)))
-                
-                if math.abs(close - getTop) == minDist.get(0, 1)
-                    minDist.set(0, 0, i)
-                
-                // Hide all FVGs initially
-                fvgUp.get(i).set_right(fvgUp.get(i).get_left())
-            
-            // Show only the closest one
-            fvgUp.get(int(minDist.get(0, 0))).set_bgcolor(color.new(fvgcol, fvgtra))
-            fvgUp.get(int(minDist.get(0, 0))).set_border_color(color.new(fvgcol, fvgtra))
-            fvgUp.get(int(minDist.get(0, 0))).set_right(last_bar_time)
+            dists_up = array.new<float>()
+            for i = 0 to fvgUp.size() - 1
+                dists_up.push(math.abs(close - fvgUp.get(i).get_top()))
+                fvgUp.get(i).set_right(fvgUp.get(i).get_left())  // hide all initially
+            dists_up.sort()
+            threshold_up = dists_up.get(math.min(maxFVG - 1, dists_up.size() - 1))
+            for i = 0 to fvgUp.size() - 1
+                getfvg = fvgUp.get(i)
+                if math.abs(close - getfvg.get_top()) <= threshold_up
+                    getfvg.set_bgcolor(color.new(fvgcol, fvgtra))
+                    getfvg.set_border_color(color.new(fvgcol, fvgtra))
+                    getfvg.set_right(last_bar_time)
 
 // ============================================================================
 // HIGH/LOW LEVELS - PHASE 5.1
@@ -1469,9 +1478,9 @@ div_positive_regular_positive_hidden_divergence(src, cond) =>
         startpoint = div_dontconfirm ? 0 : 1
         
         for x = 0 to div_maxpp - 1
-            len = bar_index - array.get(div_pl_positions, x) + div_prd
-            
-            if array.get(div_pl_positions, x) == 0 or len > div_maxbars
+            len = bar_index - array.get(div_pl_positions, x) + eff_div_prd
+
+            if array.get(div_pl_positions, x) == 0 or len > eff_div_maxbars
                 break
             
             if len > 5 and ((cond == 1 and src[startpoint] > src[len] and prsc[startpoint] < nz(array.get(div_pl_vals, x))) or (cond == 2 and src[startpoint] < src[len] and prsc[startpoint] > nz(array.get(div_pl_vals, x))))
@@ -1503,9 +1512,9 @@ div_negative_regular_negative_hidden_divergence(src, cond) =>
         startpoint = div_dontconfirm ? 0 : 1
         
         for x = 0 to div_maxpp - 1
-            len = bar_index - array.get(div_ph_positions, x) + div_prd
-            
-            if array.get(div_ph_positions, x) == 0 or len > div_maxbars
+            len = bar_index - array.get(div_ph_positions, x) + eff_div_prd
+
+            if array.get(div_ph_positions, x) == 0 or len > eff_div_maxbars
                 break
             
             if len > 5 and ((cond == 1 and src[startpoint] < src[len] and prsc[startpoint] > nz(array.get(div_ph_vals, x))) or (cond == 2 and src[startpoint] > src[len] and prsc[startpoint] < nz(array.get(div_ph_vals, x))))
@@ -1660,8 +1669,8 @@ if enableDivergence
     div_pl_source = div_source == "Close" ? close : low
     
     // Detect Pivot Highs and Pivot Lows
-    div_ph := ta.pivothigh(div_ph_source, div_prd, div_prd)
-    div_pl := ta.pivotlow(div_pl_source, div_prd, div_prd)
+    div_ph := ta.pivothigh(div_ph_source, eff_div_prd, eff_div_prd)
+    div_pl := ta.pivotlow(div_pl_source, eff_div_prd, eff_div_prd)
     
     // Add Pivot Highs to arrays
     if not na(div_ph)
@@ -1869,8 +1878,8 @@ if enableDivergence
                      ))
 
 // Show pivot points optionally (for debugging/visualization)
-plotshape(enableDivergence and not na(div_ph) and div_showpivot, text = "H", style = shape.labeldown, color = color.new(color.white, 100), textcolor = color.red, location = location.abovebar, offset = -div_prd)
-plotshape(enableDivergence and not na(div_pl) and div_showpivot, text = "L", style = shape.labelup, color = color.new(color.white, 100), textcolor = color.lime, location = location.belowbar, offset = -div_prd)
+plotshape(enableDivergence and not na(div_ph) and div_showpivot, text = "H", style = shape.labeldown, color = color.new(color.white, 100), textcolor = color.red, location = location.abovebar, offset = -eff_div_prd)
+plotshape(enableDivergence and not na(div_pl) and div_showpivot, text = "L", style = shape.labelup, color = color.new(color.white, 100), textcolor = color.lime, location = location.belowbar, offset = -eff_div_prd)
 
 // ============================================================================
 // END OF DIVERGENCE MODULE (PHASE 6.1, 6.2, 6.3, 6.4 & 6.5)
@@ -2434,6 +2443,175 @@ plot(enableEMA4 and ema4_show ? ema4_val : na, title = "EMA 4", color = ema4_col
 // ============================================================================
 // END OF 4 EMA MODULE
 // ============================================================================
+
+// ============================================================================
+// MODULE: MULTI-TIMEFRAME DASHBOARD
+// ============================================================================
+
+// Dashboard Inputs
+enableMTF      = input.bool(true, "Show MTF Dashboard", group = "═══ MTF DASHBOARD ═══")
+mtf_position   = input.string("Bottom Right", "Position",
+     options = ["Top Left", "Top Right", "Bottom Left", "Bottom Right"],
+     group = "═══ MTF DASHBOARD ═══")
+mtf_txt_size   = input.string("Small", "Text Size",
+     options = ["Tiny", "Small", "Normal"],
+     group = "═══ MTF DASHBOARD ═══")
+
+// ── Signal function (runs on the requested TF via request.security) ──────────
+// Returns [atr_dir, rsi_dir, ema_dir, close_val]
+//   atr_dir: +1 bullish / -1 bearish (HMA-ATR trend, same logic as main)
+//   rsi_dir: +1 if RSI > 55 / -1 if RSI < 45 / 0 neutral
+//   ema_dir: +1 if EMA9 > EMA21 / -1 otherwise
+f_mtf_metrics() =>
+    // ── ATR trend (simplified, mirrors main module) ──
+    _atr_v  = ta.hma(ta.tr(true), 5) * 6.5
+    _upper  = ta.highest(high, 1)
+    _lower  = ta.lowest(low, 1)
+    var float _t = na
+    var string _d = "neutral"
+    _dir = _upper > _upper[1] ? "up" : _lower < _lower[1] ? "down" : "neutral"
+    if _dir == "up"
+        _t := math.max(nz(_t, _lower - _atr_v), _lower - _atr_v)
+    else if _dir == "down"
+        _t := math.min(nz(_t, _upper + _atr_v), _upper + _atr_v)
+    else
+        _t := nz(_t)
+    _d := _t > nz(_t[1]) ? "up" : _t < nz(_t[1]) ? "down" : _d
+    atr_dir = _d == "up" ? 1 : _d == "down" ? -1 : 0
+
+    // ── RSI ──
+    _rsi    = ta.rsi(close, 14)
+    rsi_dir = _rsi > 55 ? 1 : _rsi < 45 ? -1 : 0
+
+    // ── EMA cross ──
+    ema_dir = ta.ema(close, 9) > ta.ema(close, 21) ? 1 : -1
+
+    [atr_dir, rsi_dir, ema_dir, close]
+
+// ── Request metrics for each TF ──────────────────────────────────────────────
+[a1d, r1d, e1d, p1d]   = request.security(syminfo.tickerid, "1D",  f_mtf_metrics(), lookahead = barmerge.lookahead_off)
+[a4h, r4h, e4h, p4h]   = request.security(syminfo.tickerid, "240", f_mtf_metrics(), lookahead = barmerge.lookahead_off)
+[a1h, r1h, e1h, p1h]   = request.security(syminfo.tickerid, "60",  f_mtf_metrics(), lookahead = barmerge.lookahead_off)
+[a15, r15, e15, p15]   = request.security(syminfo.tickerid, "15",  f_mtf_metrics(), lookahead = barmerge.lookahead_off)
+[a5,  r5,  e5,  px5]   = request.security(syminfo.tickerid, "5",   f_mtf_metrics(), lookahead = barmerge.lookahead_off)
+[a3,  r3,  e3,  px3]   = request.security(syminfo.tickerid, "3",   f_mtf_metrics(), lookahead = barmerge.lookahead_off)
+[a1,  r1,  e1,  px1]   = request.security(syminfo.tickerid, "1",   f_mtf_metrics(), lookahead = barmerge.lookahead_off)
+
+// ── Points (–3 → +3) ─────────────────────────────────────────────────────────
+pts_1D = a1d + r1d + e1d
+pts_4H = a4h + r4h + e4h
+pts_1H = a1h + r1h + e1h
+pts_15 = a15 + r15 + e15
+pts_5  = a5  + r5  + e5
+pts_3  = a3  + r3  + e3
+pts_1  = a1  + r1  + e1
+
+// ── Dashboard helpers — must be at global scope (Pine Script v6) ─────────────
+f_pts_to_signal(pts) =>
+    pts >= 2 ? "  LONG  " : pts <= -2 ? "  SHORT  " : pts == 1 ? "PROBABLE ▲" : pts == -1 ? "PROBABLE ▼" : "ESPERANDO"
+
+f_pts_to_dir(pts) =>
+    pts > 0 ? "▲" : pts < 0 ? "▼" : "—"
+
+f_sig_color(pts) =>
+    pts >= 2 ? #00e676 : pts <= -2 ? #ff1744 : pts == 1 ? #69f0ae : pts == -1 ? #ff5252 : #78909c
+
+f_dir_color(pts) =>
+    pts > 0 ? #00e676 : pts < 0 ? #ff1744 : #78909c
+
+// ── Render table on last bar ──────────────────────────────────────────────────
+if enableMTF and barstate.islast
+    // ── Colors ──
+    c_header  = color.new(#0d1117, 0)
+    c_row_a   = color.new(#161b22, 5)
+    c_row_b   = color.new(#1c2128, 5)
+    c_footer  = color.new(#0d1117, 0)
+    c_border  = color.new(#30363d, 0)
+    c_white   = #e6edf3
+    c_subtext = #8b949e
+    c_bull    = #00e676
+    c_bear    = #ff1744
+    c_prob_b  = #69f0ae
+    c_prob_r  = #ff5252
+    c_neutral = #78909c
+
+    // ── Table setup ──
+    tbl_pos  = switch mtf_position
+        "Top Left"     => position.top_left
+        "Top Right"    => position.top_right
+        "Bottom Left"  => position.bottom_left
+        =>               position.bottom_right
+
+    txt_sz = switch mtf_txt_size
+        "Tiny"   => size.tiny
+        "Normal" => size.normal
+        =>          size.small
+
+    var table mtf_tbl = table.new(tbl_pos, 5, 10,
+         border_width  = 1,
+         border_color  = c_border,
+         frame_width   = 2,
+         frame_color   = color.new(#30363d, 0))
+
+    // ── Title row ──
+    table.cell(mtf_tbl, 0, 0, "◈ MULTI-TIMEFRAME",
+         text_color = c_bull, bgcolor = c_header, text_size = txt_sz,
+         text_halign = text.align_left)
+    table.merge_cells(mtf_tbl, 0, 0, 4, 0)
+
+    // ── Column headers ──
+    table.cell(mtf_tbl, 0, 1, "  TF  ",    text_color = c_subtext, bgcolor = c_header, text_size = txt_sz, text_halign = text.align_center)
+    table.cell(mtf_tbl, 1, 1, " DIR ",     text_color = c_subtext, bgcolor = c_header, text_size = txt_sz, text_halign = text.align_center)
+    table.cell(mtf_tbl, 2, 1, " PTS ",     text_color = c_subtext, bgcolor = c_header, text_size = txt_sz, text_halign = text.align_center)
+    table.cell(mtf_tbl, 3, 1, "  SEÑAL  ", text_color = c_subtext, bgcolor = c_header, text_size = txt_sz, text_halign = text.align_center)
+    table.cell(mtf_tbl, 4, 1, "  PRECIO ", text_color = c_subtext, bgcolor = c_header, text_size = txt_sz, text_halign = text.align_right)
+
+    // ── Data rows ──
+    tf_names  = array.from("1D", "4H", "1H", "15m", "5m", "3m", "1m")
+    pts_list  = array.from(pts_1D, pts_4H, pts_1H, pts_15, pts_5, pts_3, pts_1)
+    price_list = array.from(p1d, p4h, p1h, p15, px5, px3, px1)
+
+    for i = 0 to 6
+        row     = i + 2
+        bg      = i % 2 == 0 ? c_row_a : c_row_b
+        tf_name = array.get(tf_names, i)
+        pts     = array.get(pts_list, i)
+        price   = array.get(price_list, i)
+        dir_str = f_pts_to_dir(pts)
+        sig_str = f_pts_to_signal(pts)
+        d_col   = f_dir_color(pts)
+        s_col   = f_sig_color(pts)
+
+        table.cell(mtf_tbl, 0, row, " " + tf_name + " ",
+             text_color = c_white,   bgcolor = bg, text_size = txt_sz, text_halign = text.align_center)
+        table.cell(mtf_tbl, 1, row, " " + dir_str + " ",
+             text_color = d_col,     bgcolor = bg, text_size = txt_sz, text_halign = text.align_center)
+        table.cell(mtf_tbl, 2, row, " " + str.tostring(pts) + " ",
+             text_color = d_col,     bgcolor = bg, text_size = txt_sz, text_halign = text.align_center)
+        table.cell(mtf_tbl, 3, row, sig_str,
+             text_color = s_col,     bgcolor = bg, text_size = txt_sz, text_halign = text.align_center)
+        table.cell(mtf_tbl, 4, row, str.tostring(price, format.mintick) + " ",
+             text_color = c_white,   bgcolor = bg, text_size = txt_sz, text_halign = text.align_right)
+
+    // ── Footer: overall bias ──
+    bull_n = 0
+    bear_n = 0
+    for i = 0 to 6
+        p = array.get(pts_list, i)
+        if p > 0
+            bull_n += 1
+        else if p < 0
+            bear_n += 1
+
+    bias_lbl = bull_n > bear_n ? "● BULLISH  " + str.tostring(bull_n) + "/7" :
+               bear_n > bull_n ? "● BEARISH  " + str.tostring(bear_n) + "/7" :
+               "● NEUTRAL"
+    bias_col = bull_n > bear_n ? c_bull : bear_n > bull_n ? c_bear : c_neutral
+
+    table.cell(mtf_tbl, 0, 9, "  " + bias_lbl + "  ",
+         text_color = bias_col, bgcolor = c_footer,
+         text_size = txt_sz, text_halign = text.align_center)
+    table.merge_cells(mtf_tbl, 0, 9, 4, 9)
 
 // ============================================================================
 // END OF TACTICAL SUITE - FULL VERSION

@@ -1,0 +1,352 @@
+//@version=6
+indicator("Primera Vela NY - 5m to 1m", shorttitle = "PV NY", overlay = true, max_lines_count = 300, max_labels_count = 300, max_boxes_count = 300)
+
+// Session
+string tz               = input.string("America/Bogota", "Zona horaria")
+int    openHour         = input.int(8,   "Hora apertura",                   minval = 0, maxval = 23)
+int    openMinute       = input.int(30,  "Minuto apertura",                  minval = 0, maxval = 59)
+int    rangeMinutes     = input.int(5,   "Minutos de rango inicial",         minval = 1, maxval = 30)
+int    tradeWindowMinutes = input.int(90,"Ventana operativa (minutos)",      minval = 5, maxval = 300)
+
+// Strategy
+float  rr               = input.float(1.0, "Risk/Reward",                   minval = 0.1, step = 0.1)
+bool   confirmByClose   = input.bool(true, "Ruptura valida por cierre")
+bool   requireRetest    = input.bool(true, "Esperar retesteo del nivel roto")
+int    maxTradesPerDay  = input.int(1,   "Max operaciones por dia",          minval = 1, maxval = 5)
+
+// Visual
+bool   showRangeBox     = input.bool(true,  "Mostrar caja rango 5m")
+bool   showRangeLines   = input.bool(true,  "Mostrar lineas Maximo/Minimo 5M")
+bool   showTradeBoxes   = input.bool(true,  "Mostrar caja TP/SL")
+int    projectionBars   = input.int(45,  "Ancho visual TP/SL (barras)",     minval = 5, maxval = 300)
+
+// Colors
+color  cRange  = input.color(color.new(color.gray,  88), "Color caja rango")
+color  cMax    = input.color(color.new(color.white,  0), "Color Maximo 5M")
+color  cMin    = input.color(color.new(color.white,  0), "Color Minimo 5M")
+color  cLong   = input.color(color.new(color.lime,   0), "Color Long")
+color  cShort  = input.color(color.new(color.red,    0), "Color Short")
+color  cTP     = input.color(color.new(color.green, 82), "Color TP")
+color  cSL     = input.color(color.new(color.red,   78), "Color SL")
+
+// ─── Time windows ─────────────────────────────────────────────────────────────
+int y             = year(time, tz)
+int mo            = month(time, tz)
+int d             = dayofmonth(time, tz)
+int sessionStart  = timestamp(tz, y, mo, d, openHour, openMinute)
+int rangeEnd      = sessionStart + rangeMinutes      * 60 * 1000
+int tradeEnd      = sessionStart + tradeWindowMinutes * 60 * 1000
+
+bool inRangeWindow  = time >= sessionStart and time < rangeEnd
+bool sessionStartsNow = inRangeWindow and not inRangeWindow[1]
+bool inTradeWindow  = time >= rangeEnd   and time < tradeEnd
+
+// ─── Day state ────────────────────────────────────────────────────────────────
+var float rangeHigh    = na
+var float rangeLow     = na
+var bool  rangeLocked  = false
+var int   tradesToday  = 0
+
+var int   pendingDir   = 0          // 1 = long, -1 = short, 0 = none
+var float pendingLevel = na
+
+var float entryPrice   = na
+var float stopPrice    = na
+var float takePrice    = na
+var int   entryDir     = 0
+var bool  tradeDrawn   = false      // true once the trade is drawn this session
+
+// ─── Draw objects ─────────────────────────────────────────────────────────────
+var box   rangeBox   = na
+var line  maxLine    = na
+var line  minLine    = na
+var label maxLabel   = na
+var label minLabel   = na
+
+var line  entryLine  = na
+var line  stopLine   = na
+var line  takeLine   = na
+var box   tpBox      = na
+var box   slBox      = na
+var label tradeLabel = na
+var label tpLabel    = na
+var label slLabel    = na
+
+// ─── Session start: reset state and clean previous drawings ───────────────────
+if sessionStartsNow
+    // Las cajas TP/SL anteriores se conservan en el chart (solo se suelta la ref)
+    tpBox := na
+    slBox := na
+
+    // Limpiar setup del día anterior: líneas, labels y caja del rango
+    if not na(entryLine)
+        line.delete(entryLine)
+    entryLine := na
+    if not na(stopLine)
+        line.delete(stopLine)
+    stopLine := na
+    if not na(takeLine)
+        line.delete(takeLine)
+    takeLine := na
+    if not na(tradeLabel)
+        label.delete(tradeLabel)
+    tradeLabel := na
+    if not na(tpLabel)
+        label.delete(tpLabel)
+    tpLabel := na
+    if not na(slLabel)
+        label.delete(slLabel)
+    slLabel := na
+    if not na(rangeBox)
+        box.delete(rangeBox)
+    rangeBox := na
+    if not na(maxLine)
+        line.delete(maxLine)
+    maxLine := na
+    if not na(minLine)
+        line.delete(minLine)
+    minLine := na
+    if not na(maxLabel)
+        label.delete(maxLabel)
+    maxLabel := na
+    if not na(minLabel)
+        label.delete(minLabel)
+    minLabel := na
+
+    // Reset day state
+    rangeHigh    := high
+    rangeLow     := low
+    rangeLocked  := false
+    tradesToday  := 0
+    pendingDir   := 0
+    pendingLevel := na
+    entryPrice   := na
+    stopPrice    := na
+    takePrice    := na
+    entryDir     := 0
+    tradeDrawn   := false
+
+    if showRangeBox
+        rangeBox := box.new(bar_index, rangeHigh, bar_index + 1, rangeLow,
+                            bgcolor = cRange,
+                            border_color = color.new(color.white, 85),
+                            border_width = 1)
+
+// ─── Accumulate range window ──────────────────────────────────────────────────
+if inRangeWindow
+    rangeHigh := na(rangeHigh) ? high : math.max(rangeHigh, high)
+    rangeLow  := na(rangeLow)  ? low  : math.min(rangeLow, low)
+
+    if showRangeBox and not na(rangeBox)
+        box.set_right(rangeBox,  bar_index + 1)
+        box.set_top(rangeBox,    rangeHigh)
+        box.set_bottom(rangeBox, rangeLow)
+
+// ─── Lock range and draw levels ───────────────────────────────────────────────
+if not inRangeWindow and not rangeLocked and not na(rangeHigh) and time >= rangeEnd
+    rangeLocked := true
+
+    if showRangeLines
+        maxLine  := line.new(bar_index, rangeHigh, bar_index + 1, rangeHigh,
+                             extend = extend.right, color = cMax,
+                             style = line.style_solid, width = 2)
+        minLine  := line.new(bar_index, rangeLow,  bar_index + 1, rangeLow,
+                             extend = extend.right, color = cMin,
+                             style = line.style_solid, width = 2)
+        maxLabel := label.new(bar_index, rangeHigh,
+                              "  MAX 5M   " + str.tostring(rangeHigh, format.mintick) + "  ",
+                              style     = label.style_label_left,
+                              textcolor = color.black,
+                              color     = color.new(color.white, 10),
+                              size      = size.small)
+        minLabel := label.new(bar_index, rangeLow,
+                              "  MIN 5M   " + str.tostring(rangeLow, format.mintick) + "  ",
+                              style     = label.style_label_left,
+                              textcolor = color.black,
+                              color     = color.new(color.white, 10),
+                              size      = size.small)
+
+// ─── Breakout detection ───────────────────────────────────────────────────────
+bool canScan    = rangeLocked and inTradeWindow and tradesToday < maxTradesPerDay and entryDir == 0
+
+bool breakLong  = canScan and (confirmByClose
+                               ? (close > rangeHigh and close[1] <= rangeHigh)
+                               : (high  > rangeHigh and high[1]  <= rangeHigh))
+bool breakShort = canScan and (confirmByClose
+                               ? (close < rangeLow  and close[1] >= rangeLow)
+                               : (low   < rangeLow  and low[1]   >= rangeLow))
+bool ambiguous  = breakLong and breakShort
+
+if canScan and not ambiguous and pendingDir == 0
+    if breakLong
+        pendingDir   := 1
+        pendingLevel := rangeHigh
+        if not requireRetest
+            entryPrice := close
+            stopPrice  := rangeLow
+            float risk  = entryPrice - stopPrice
+            if risk > 0
+                takePrice  := entryPrice + risk * rr
+                entryDir   := 1
+                tradesToday += 1
+                pendingDir   := 0
+                pendingLevel := na
+    else if breakShort
+        pendingDir   := -1
+        pendingLevel := rangeLow
+        if not requireRetest
+            entryPrice := close
+            stopPrice  := rangeHigh
+            float risk  = stopPrice - entryPrice
+            if risk > 0
+                takePrice  := entryPrice - risk * rr
+                entryDir   := -1
+                tradesToday += 1
+                pendingDir   := 0
+                pendingLevel := na
+
+// ─── Retest detection ─────────────────────────────────────────────────────────
+bool retestLong  = pendingDir ==  1 and low  <= pendingLevel and close >= pendingLevel and inTradeWindow
+bool retestShort = pendingDir == -1 and high >= pendingLevel and close <= pendingLevel and inTradeWindow
+
+if entryDir == 0
+    if retestLong
+        entryPrice   := close
+        stopPrice    := rangeLow
+        float risk    = entryPrice - stopPrice
+        if risk > 0
+            takePrice  := entryPrice + risk * rr
+            entryDir   := 1
+            tradesToday += 1
+            pendingDir   := 0
+            pendingLevel := na
+
+    if retestShort
+        entryPrice   := close
+        stopPrice    := rangeHigh
+        float risk    = stopPrice - entryPrice
+        if risk > 0
+            takePrice  := entryPrice - risk * rr
+            entryDir   := -1
+            tradesToday += 1
+            pendingDir   := 0
+            pendingLevel := na
+
+// ─── Draw trade (once per session) ───────────────────────────────────────────
+bool newTrade = entryDir != 0 and not tradeDrawn
+
+if newTrade
+    tradeDrawn      := true
+    bool   isLong    = entryDir == 1
+    int    x2        = bar_index + projectionBars
+    float  riskPts   = math.abs(entryPrice - stopPrice)
+    float  rewardPts = math.abs(takePrice  - entryPrice)
+    color  cDir      = isLong ? cLong : cShort
+
+    // ── Entry line (dashed separator between TP and SL zones) ──
+    entryLine := line.new(bar_index, entryPrice, x2, entryPrice,
+                          color = color.new(color.white, 45),
+                          width = 1, style = line.style_dashed)
+
+    // ── Thin border lines for TP and SL ──
+    takeLine := line.new(bar_index, takePrice, x2, takePrice,
+                         color = color.new(color.green, 30), width = 1)
+    stopLine := line.new(bar_index, stopPrice,  x2, stopPrice,
+                         color = color.new(color.red, 30),   width = 1)
+
+    // ── TP / SL boxes (text embedded inside) ──
+    if showTradeBoxes
+        float tpTop    = isLong ? takePrice  : entryPrice
+        float tpBottom = isLong ? entryPrice : takePrice
+        float slTop    = isLong ? entryPrice : stopPrice
+        float slBottom = isLong ? stopPrice  : entryPrice
+
+        tpBox := box.new(
+             bar_index, tpTop, x2, tpBottom,
+             bgcolor      = color.new(color.green, 88),
+             border_color = color.new(color.green, 40),
+             border_width = 1,
+             text         = "  TP  " + str.tostring(takePrice, format.mintick) +
+                            "     +" + str.tostring(rewardPts, format.mintick) + "  ",
+             text_color   = color.new(color.white, 5),
+             text_size    = size.small,
+             text_halign  = text.align_right,
+             text_valign  = isLong ? text.align_top : text.align_bottom)
+
+        slBox := box.new(
+             bar_index, slTop, x2, slBottom,
+             bgcolor      = color.new(color.red, 88),
+             border_color = color.new(color.red, 40),
+             border_width = 1,
+             text         = "  SL  " + str.tostring(stopPrice, format.mintick) +
+                            "     -" + str.tostring(riskPts, format.mintick) + "  ",
+             text_color   = color.new(color.white, 5),
+             text_size    = size.small,
+             text_halign  = text.align_right,
+             text_valign  = isLong ? text.align_bottom : text.align_top)
+
+    // ── Entry label on the right of the entry line ──
+    tpLabel := label.new(x2 + 1, entryPrice,
+                         (isLong ? "▲  LONG" : "▼  SHORT") +
+                         "   ENTRY  " + str.tostring(entryPrice, format.mintick) +
+                         "   RR 1:" + str.tostring(rr, "##.#"),
+                         style     = label.style_label_left,
+                         textcolor = color.white,
+                         color     = color.new(cDir, 45),
+                         size      = size.small)
+
+    // ── Signal arrow at the entry candle ──
+    tradeLabel := label.new(bar_index, isLong ? low : high,
+                            isLong ? "▲" : "▼",
+                            style     = isLong ? label.style_label_up : label.style_label_down,
+                            textcolor = color.white,
+                            color     = color.new(cDir, 20),
+                            size      = size.large)
+
+// ─── Plots ────────────────────────────────────────────────────────────────────
+plot(rangeLocked or inRangeWindow ? rangeHigh : na, "Maximo 5M",
+     color = color.new(cMax, 0), linewidth = 2, style = plot.style_linebr)
+plot(rangeLocked or inRangeWindow ? rangeLow  : na, "Minimo 5M",
+     color = color.new(cMin, 0), linewidth = 2, style = plot.style_linebr)
+
+// Break: flecha en el lado opuesto al movimiento para no tapar la vela
+plotshape(breakLong  and not ambiguous, title = "Break Long",
+          style = shape.triangleup,   location = location.belowbar,
+          color = cLong,  size = size.tiny, text = "B")
+plotshape(breakShort and not ambiguous, title = "Break Short",
+          style = shape.triangledown, location = location.abovebar,
+          color = cShort, size = size.tiny, text = "B")
+plotshape(retestLong,  title = "Retest Long",
+          style = shape.circle, location = location.belowbar,
+          color = cLong,  size = size.tiny, text = "R")
+plotshape(retestShort, title = "Retest Short",
+          style = shape.circle, location = location.abovebar,
+          color = cShort, size = size.tiny, text = "R")
+plotshape(ambiguous, title = "Break ambiguo",
+          style = shape.xcross, location = location.abovebar,
+          color = color.yellow, size = size.tiny)
+
+// ─── Timeframe warning ────────────────────────────────────────────────────────
+bool isOneMinute = timeframe.isminutes and timeframe.multiplier == 1
+var label tfWarn = na
+if barstate.islast
+    if not isOneMinute
+        if na(tfWarn)
+            tfWarn := label.new(bar_index, high,
+                                "Usar en 1m para esta estrategia",
+                                style = label.style_label_down,
+                                textcolor = color.white,
+                                color = color.new(color.red, 70))
+        else
+            label.set_x(tfWarn, bar_index)
+            label.set_y(tfWarn, high)
+    else
+        if not na(tfWarn)
+            label.delete(tfWarn)
+            tfWarn := na
+
+// ─── Alerts ───────────────────────────────────────────────────────────────────
+alertcondition(breakLong  and not ambiguous, title = "Ruptura alcista",  message = "Ruptura alcista del rango 5m de apertura")
+alertcondition(breakShort and not ambiguous, title = "Ruptura bajista",  message = "Ruptura bajista del rango 5m de apertura")
+alertcondition(retestLong,                   title = "Entrada long",     message = "Retesteo validado para entrada long")
+alertcondition(retestShort,                  title = "Entrada short",    message = "Retesteo validado para entrada short")
