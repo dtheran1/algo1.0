@@ -2489,13 +2489,14 @@ mtf_txt_size   = input.string("Small", "Text Size",
      group = "═══ MTF DASHBOARD ═══")
 
 // ── Signal function (runs on the requested TF via request.security) ──────────
-// Returns [atr_dir, rsi_dir, ema_dir, vwap_dir, close_val]
-//   atr_dir:  +1 bullish / -1 bearish (HMA-ATR trend, same logic as main)
-//   rsi_dir:  +1 if RSI > 52 / -1 if RSI < 48 / 0 neutral
-//   ema_dir:  +1 if EMA9 > EMA21 / -1 otherwise
-//   vwap_dir: +1 if close > VWAP  / -1 otherwise (institutional reference)
+// Returns [atr_dir, wt_dir, adx_dir, mom_dir, vwap_dir, close_val]
+//   atr_dir:  +1 bullish / -1 bearish      — HMA-ATR trail direction
+//   wt_dir:   +1 if WT1>WT2 / -1 if WT1<WT2 — WaveTrend cross
+//   adx_dir:  +1 DI+>DI- & ADX>20 / -1 DI->DI+ & ADX>20 / 0 sin fuerza
+//   mom_dir:  +1 Squeeze subiendo / -1 bajando
+//   vwap_dir: +1 close>VWAP / -1 close<VWAP  — referencia institucional
 f_mtf_metrics() =>
-    // ── ATR trend (simplified, mirrors main module) ──
+    // ── ATR trend (backbone) ──
     _atr_v  = ta.hma(ta.tr(true), 5) * 6.5
     _upper  = ta.highest(high, 1)
     _lower  = ta.lowest(low, 1)
@@ -2511,45 +2512,62 @@ f_mtf_metrics() =>
     _d := _t > nz(_t[1]) ? "up" : _t < nz(_t[1]) ? "down" : _d
     atr_dir = _d == "up" ? 1 : _d == "down" ? -1 : 0
 
-    // ── RSI (tighter thresholds: 52/48 instead of 55/45) ──
-    _rsi    = ta.rsi(close, 14)
-    rsi_dir = _rsi > 52 ? 1 : _rsi < 48 ? -1 : 0
+    // ── WaveTrend (WT1 vs WT2) ──
+    _ap   = hlc3
+    _esa  = ta.ema(_ap, 10)
+    _d_wt = ta.ema(math.abs(_ap - _esa), 10)
+    _ci   = (_ap - _esa) / (0.015 * _d_wt)
+    _wt1  = ta.ema(_ci, 14)
+    _wt2  = ta.sma(_wt1, 4)
+    wt_dir = _wt1 > _wt2 ? 1 : _wt1 < _wt2 ? -1 : 0
 
-    // ── EMA cross ──
-    ema_dir = ta.ema(close, 9) > ta.ema(close, 21) ? 1 : -1
+    // ── ADX / DMI ──
+    _ch   = ta.change(high)
+    _cl   = -(ta.change(low))
+    _tr14 = ta.rma(ta.tr(true), 14)
+    _dip  = ta.rma(_ch > _cl and _ch > 0 ? _ch : 0, 14) / _tr14 * 100
+    _din  = ta.rma(_cl > _ch and _cl > 0 ? _cl : 0, 14) / _tr14 * 100
+    _sum  = _dip + _din
+    _adx  = ta.rma(math.abs(_dip - _din) / (_sum == 0 ? 1 : _sum), 14) * 100
+    adx_dir = _adx > 20 and _dip > _din ? 1 : _adx > 20 and _din > _dip ? -1 : 0
 
-    // ── VWAP (institutional reference — always ±1, never neutral) ──
+    // ── Squeeze Momentum ──
+    _sq  = 12
+    _sqv = ta.linreg(close - math.avg(math.avg(ta.highest(high, _sq), ta.lowest(low, _sq)), ta.sma(close, _sq)), _sq, 0)
+    mom_dir = _sqv > nz(_sqv[1]) ? 1 : _sqv < nz(_sqv[1]) ? -1 : 0
+
+    // ── VWAP (referencia institucional — siempre ±1) ──
     vwap_dir = close > ta.vwap ? 1 : -1
 
-    [atr_dir, rsi_dir, ema_dir, vwap_dir, close]
+    [atr_dir, wt_dir, adx_dir, mom_dir, vwap_dir, close]
 
 // ── Request metrics for each TF ──────────────────────────────────────────────
-[a1d, r1d, e1d, v1d, p1d]   = request.security(syminfo.tickerid, "1D",  f_mtf_metrics(), lookahead = barmerge.lookahead_off)
-[a4h, r4h, e4h, v4h, p4h]   = request.security(syminfo.tickerid, "240", f_mtf_metrics(), lookahead = barmerge.lookahead_off)
-[a1h, r1h, e1h, v1h, p1h]   = request.security(syminfo.tickerid, "60",  f_mtf_metrics(), lookahead = barmerge.lookahead_off)
-[a15, r15, e15, v15, p15]   = request.security(syminfo.tickerid, "15",  f_mtf_metrics(), lookahead = barmerge.lookahead_off)
-[a5,  r5,  e5,  v5,  px5]   = request.security(syminfo.tickerid, "5",   f_mtf_metrics(), lookahead = barmerge.lookahead_off)
-[a3,  r3,  e3,  v3,  px3]   = request.security(syminfo.tickerid, "3",   f_mtf_metrics(), lookahead = barmerge.lookahead_off)
-[a1,  r1,  e1,  v1,  px1]   = request.security(syminfo.tickerid, "1",   f_mtf_metrics(), lookahead = barmerge.lookahead_off)
+[a1d, w1d, x1d, m1d, v1d, p1d]   = request.security(syminfo.tickerid, "1D",  f_mtf_metrics(), lookahead = barmerge.lookahead_off)
+[a4h, w4h, x4h, m4h, v4h, p4h]   = request.security(syminfo.tickerid, "240", f_mtf_metrics(), lookahead = barmerge.lookahead_off)
+[a1h, w1h, x1h, m1h, v1h, p1h]   = request.security(syminfo.tickerid, "60",  f_mtf_metrics(), lookahead = barmerge.lookahead_off)
+[a15, w15, x15, m15, v15, p15]   = request.security(syminfo.tickerid, "15",  f_mtf_metrics(), lookahead = barmerge.lookahead_off)
+[a5,  w5,  x5,  m5,  v5,  px5]   = request.security(syminfo.tickerid, "5",   f_mtf_metrics(), lookahead = barmerge.lookahead_off)
+[a3,  w3,  x3,  m3,  v3,  px3]   = request.security(syminfo.tickerid, "3",   f_mtf_metrics(), lookahead = barmerge.lookahead_off)
+[a1,  w1,  x1,  m1,  v1,  px1]   = request.security(syminfo.tickerid, "1",   f_mtf_metrics(), lookahead = barmerge.lookahead_off)
 
-// ── Points (–4 → +4 with VWAP as 4th confluence) ────────────────────────────
-pts_1D = a1d + r1d + e1d + v1d
-pts_4H = a4h + r4h + e4h + v4h
-pts_1H = a1h + r1h + e1h + v1h
-pts_15 = a15 + r15 + e15 + v15
-pts_5  = a5  + r5  + e5  + v5
-pts_3  = a3  + r3  + e3  + v3
-pts_1  = a1  + r1  + e1  + v1
+// ── Points (–5 → +5): ATR + WaveTrend + ADX + Momentum + VWAP ───────────────
+pts_1D = a1d + w1d + x1d + m1d + v1d
+pts_4H = a4h + w4h + x4h + m4h + v4h
+pts_1H = a1h + w1h + x1h + m1h + v1h
+pts_15 = a15 + w15 + x15 + m15 + v15
+pts_5  = a5  + w5  + x5  + m5  + v5
+pts_3  = a3  + w3  + x3  + m3  + v3
+pts_1  = a1  + w1  + x1  + m1  + v1
 
 // ── Dashboard helpers — must be at global scope (Pine Script v6) ─────────────
 f_pts_to_signal(pts) =>
-    pts >= 3 ? "  LONG  " : pts <= -3 ? "  SHORT  " : pts == 2 ? "PROBABLE ▲" : pts == -2 ? "PROBABLE ▼" : "ESPERANDO"
+    pts >= 4 ? "  LONG  " : pts <= -4 ? "  SHORT  " : pts >= 2 ? "PROBABLE ▲" : pts <= -2 ? "PROBABLE ▼" : "ESPERANDO"
 
 f_pts_to_dir(pts) =>
     pts > 0 ? "▲" : pts < 0 ? "▼" : "—"
 
 f_sig_color(pts) =>
-    pts >= 3 ? #00e676 : pts <= -3 ? #ff1744 : pts == 2 ? #69f0ae : pts == -2 ? #ff5252 : #78909c
+    pts >= 4 ? #00e676 : pts <= -4 ? #ff1744 : pts >= 2 ? #69f0ae : pts <= -2 ? #ff5252 : #78909c
 
 f_dir_color(pts) =>
     pts > 0 ? #00e676 : pts < 0 ? #ff1744 : #78909c
@@ -2599,7 +2617,7 @@ if enableMTF and barstate.islast
     // ── Column headers ──
     table.cell(mtf_tbl, 0, 1, "  TF  ",    text_color = c_subtext, bgcolor = c_header, text_size = txt_sz, text_halign = text.align_center)
     table.cell(mtf_tbl, 1, 1, " DIR ",     text_color = c_subtext, bgcolor = c_header, text_size = txt_sz, text_halign = text.align_center)
-    table.cell(mtf_tbl, 2, 1, "PTS/4",     text_color = c_subtext, bgcolor = c_header, text_size = txt_sz, text_halign = text.align_center)
+    table.cell(mtf_tbl, 2, 1, "PTS/5",     text_color = c_subtext, bgcolor = c_header, text_size = txt_sz, text_halign = text.align_center)
     table.cell(mtf_tbl, 3, 1, "  SEÑAL  ", text_color = c_subtext, bgcolor = c_header, text_size = txt_sz, text_halign = text.align_center)
     table.cell(mtf_tbl, 4, 1, "  PRECIO ", text_color = c_subtext, bgcolor = c_header, text_size = txt_sz, text_halign = text.align_right)
 
@@ -2653,21 +2671,44 @@ if enableMTF and barstate.islast
 // ============================================================================
 // MODULE: UNIFIED ENTRY SIGNAL
 // ============================================================================
-// Fires when ≥4/7 timeframes are aligned AND the main ATR trail confirms direction.
-// This is the "everything agrees" signal — high-conviction entries only.
+// Fires cuando TODO coincide:
+//   • ≥4/7 TFs alineados
+//   • ATR trail del gráfico confirma dirección
+//   • (Opcional) Divergencia activa en el TF actual
 
-// Count aligned TFs
+// Input: filtro de divergencia en señal unificada
+mtf_div_filter = input.bool(true, "Requerir Divergencia Activa",
+     group = "═══ MTF DASHBOARD ═══",
+     tooltip = "Si está activo, la señal ▲▼ MTF solo se dispara cuando hay una divergencia bullish/bearish en el TF actual. Más selectivo, menos señales.")
+
+// ── Detectar divergencias activas (usa el módulo de divergencias ya calculado) ──
+// Recorre los 11 indicadores: índice par=positiva/bullish, impar=negativa/bearish
+var bool _any_bull_div = false
+var bool _any_bear_div = false
+_any_bull_div := false
+_any_bear_div := false
+if enableDivergence
+    for _di = 0 to 10
+        if array.get(div_all_divergences, _di * 4 + 0) > 0 or array.get(div_all_divergences, _di * 4 + 2) > 0
+            _any_bull_div := true
+        if array.get(div_all_divergences, _di * 4 + 1) > 0 or array.get(div_all_divergences, _di * 4 + 3) > 0
+            _any_bear_div := true
+
+// Divergencia cumple si: filtro desactivado OR hay divergencia activa del lado correcto
+div_ok_long  = not mtf_div_filter or _any_bull_div
+div_ok_short = not mtf_div_filter or _any_bear_div
+
+// ── Conteo de TFs alineados ──
 mtf_bull_count = (pts_1D > 0 ? 1 : 0) + (pts_4H > 0 ? 1 : 0) + (pts_1H > 0 ? 1 : 0) +
      (pts_15 > 0 ? 1 : 0) + (pts_5 > 0 ? 1 : 0) + (pts_3 > 0 ? 1 : 0) + (pts_1 > 0 ? 1 : 0)
 mtf_bear_count = (pts_1D < 0 ? 1 : 0) + (pts_4H < 0 ? 1 : 0) + (pts_1H < 0 ? 1 : 0) +
      (pts_15 < 0 ? 1 : 0) + (pts_5 < 0 ? 1 : 0) + (pts_3 < 0 ? 1 : 0) + (pts_1 < 0 ? 1 : 0)
 
-// Unified long: ≥4 TFs bullish + ATR trail pointing up
-unified_long  = enableMTF and enableATR and mtf_bull_count >= 4 and up_down_trend == 'up'
-// Unified short: ≥4 TFs bearish + ATR trail pointing down
-unified_short = enableMTF and enableATR and mtf_bear_count >= 4 and up_down_trend == 'down'
+// ── Condiciones base ──
+unified_long  = enableMTF and enableATR and mtf_bull_count >= 4 and up_down_trend == 'up'  and div_ok_long
+unified_short = enableMTF and enableATR and mtf_bear_count >= 4 and up_down_trend == 'down' and div_ok_short
 
-// Only fire on the first bar of the signal (edge detection)
+// Edge detection (solo el primer bar del setup)
 unified_long_signal  = unified_long  and not unified_long[1]
 unified_short_signal = unified_short and not unified_short[1]
 
