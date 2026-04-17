@@ -2013,9 +2013,11 @@ enableSweep = input.bool(defval = true, title = "Enable Sweep Detection", group 
 // Sweep Settings
 sweep_cooldownPeriod = input.int(10, title = "Cooldown Period", minval = 0, group = "Sweep: Settings", tooltip = "Minimum bars between sweep signals")
 
-// Swing Detection
-sweep_lbLeft = 20
-sweep_lbRight = 20
+// Swing Detection (Auto Config ajusta por TF via simple int)
+simple int eff_sweep_lb      = autoConfig ? (timeframe.in_seconds() <= 180 ? 8 : timeframe.in_seconds() <= 300 ? 10 : timeframe.in_seconds() <= 900 ? 15 : 20) : 20
+simple int eff_sweep_confirm = autoConfig ? (timeframe.in_seconds() <= 300 ? 1 : timeframe.in_seconds() <= 900 ? 2  : 3)                                        : 3
+sweep_lbLeft  = eff_sweep_lb
+sweep_lbRight = eff_sweep_lb
 sweep_showSwing = input.bool(true, title = "Show Swings?", inline = "s_1", group = "Sweep: Swing Detection")
 sweep_swingClr = input.color(color.new(color.black, 0), title = "", inline = "s_1", group = "Sweep: Swing Detection")
 
@@ -2100,8 +2102,8 @@ sweep_lowestClose = ta.lowest(close, sweep_lbLeft)
 sweep_bullishSFP = low < sweep_pLowVal and close > sweep_pLowVal and open > sweep_pLowVal and low == sweep_lp and sweep_lowestClose >= sweep_pLowVal
 sweep_bearishSFP = high > sweep_pHighVal and close < sweep_pHighVal and open < sweep_pHighVal and high == sweep_hp and sweep_highestClose <= sweep_pHighVal
 
-sweep_bullCond = sweep_bullishSFP[3] and (close > sweep_pLowVal) and (close[1] > sweep_pLowVal[1]) and (close[2] > sweep_pLowVal[2]) and bar_index >= sweep_bullSignalIndex + sweep_cooldownPeriod
-sweep_bearCond = sweep_bearishSFP[3] and (close < sweep_pHighVal) and (close[1] < sweep_pHighVal[1]) and (close[2] < sweep_pHighVal[2]) and bar_index >= sweep_bearSignalIndex + sweep_cooldownPeriod
+sweep_bullCond = sweep_bullishSFP[eff_sweep_confirm] and (close > sweep_pLowVal) and (eff_sweep_confirm < 2 or close[1] > sweep_pLowVal[1]) and (eff_sweep_confirm < 3 or close[2] > sweep_pLowVal[2]) and bar_index >= sweep_bullSignalIndex + sweep_cooldownPeriod
+sweep_bearCond = sweep_bearishSFP[eff_sweep_confirm] and (close < sweep_pHighVal) and (eff_sweep_confirm < 2 or close[1] < sweep_pHighVal[1]) and (eff_sweep_confirm < 3 or close[2] < sweep_pHighVal[2]) and bar_index >= sweep_bearSignalIndex + sweep_cooldownPeriod
 
 // ============================================================================
 // SWEEP SWING H/L STOPPER LOGIC
