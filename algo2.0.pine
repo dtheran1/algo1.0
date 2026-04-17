@@ -2489,10 +2489,11 @@ mtf_txt_size   = input.string("Small", "Text Size",
      group = "═══ MTF DASHBOARD ═══")
 
 // ── Signal function (runs on the requested TF via request.security) ──────────
-// Returns [atr_dir, rsi_dir, ema_dir, close_val]
-//   atr_dir: +1 bullish / -1 bearish (HMA-ATR trend, same logic as main)
-//   rsi_dir: +1 if RSI > 55 / -1 if RSI < 45 / 0 neutral
-//   ema_dir: +1 if EMA9 > EMA21 / -1 otherwise
+// Returns [atr_dir, rsi_dir, ema_dir, vwap_dir, close_val]
+//   atr_dir:  +1 bullish / -1 bearish (HMA-ATR trend, same logic as main)
+//   rsi_dir:  +1 if RSI > 52 / -1 if RSI < 48 / 0 neutral
+//   ema_dir:  +1 if EMA9 > EMA21 / -1 otherwise
+//   vwap_dir: +1 if close > VWAP  / -1 otherwise (institutional reference)
 f_mtf_metrics() =>
     // ── ATR trend (simplified, mirrors main module) ──
     _atr_v  = ta.hma(ta.tr(true), 5) * 6.5
@@ -2510,45 +2511,50 @@ f_mtf_metrics() =>
     _d := _t > nz(_t[1]) ? "up" : _t < nz(_t[1]) ? "down" : _d
     atr_dir = _d == "up" ? 1 : _d == "down" ? -1 : 0
 
-    // ── RSI ──
+    // ── RSI (tighter thresholds: 52/48 instead of 55/45) ──
     _rsi    = ta.rsi(close, 14)
-    rsi_dir = _rsi > 55 ? 1 : _rsi < 45 ? -1 : 0
+    rsi_dir = _rsi > 52 ? 1 : _rsi < 48 ? -1 : 0
 
     // ── EMA cross ──
     ema_dir = ta.ema(close, 9) > ta.ema(close, 21) ? 1 : -1
 
-    [atr_dir, rsi_dir, ema_dir, close]
+    // ── VWAP (institutional reference — always ±1, never neutral) ──
+    vwap_dir = close > ta.vwap ? 1 : -1
+
+    [atr_dir, rsi_dir, ema_dir, vwap_dir, close]
 
 // ── Request metrics for each TF ──────────────────────────────────────────────
-[a1d, r1d, e1d, p1d]   = request.security(syminfo.tickerid, "1D",  f_mtf_metrics(), lookahead = barmerge.lookahead_off)
-[a4h, r4h, e4h, p4h]   = request.security(syminfo.tickerid, "240", f_mtf_metrics(), lookahead = barmerge.lookahead_off)
-[a1h, r1h, e1h, p1h]   = request.security(syminfo.tickerid, "60",  f_mtf_metrics(), lookahead = barmerge.lookahead_off)
-[a15, r15, e15, p15]   = request.security(syminfo.tickerid, "15",  f_mtf_metrics(), lookahead = barmerge.lookahead_off)
-[a5,  r5,  e5,  px5]   = request.security(syminfo.tickerid, "5",   f_mtf_metrics(), lookahead = barmerge.lookahead_off)
-[a3,  r3,  e3,  px3]   = request.security(syminfo.tickerid, "3",   f_mtf_metrics(), lookahead = barmerge.lookahead_off)
-[a1,  r1,  e1,  px1]   = request.security(syminfo.tickerid, "1",   f_mtf_metrics(), lookahead = barmerge.lookahead_off)
+[a1d, r1d, e1d, v1d, p1d]   = request.security(syminfo.tickerid, "1D",  f_mtf_metrics(), lookahead = barmerge.lookahead_off)
+[a4h, r4h, e4h, v4h, p4h]   = request.security(syminfo.tickerid, "240", f_mtf_metrics(), lookahead = barmerge.lookahead_off)
+[a1h, r1h, e1h, v1h, p1h]   = request.security(syminfo.tickerid, "60",  f_mtf_metrics(), lookahead = barmerge.lookahead_off)
+[a15, r15, e15, v15, p15]   = request.security(syminfo.tickerid, "15",  f_mtf_metrics(), lookahead = barmerge.lookahead_off)
+[a5,  r5,  e5,  v5,  px5]   = request.security(syminfo.tickerid, "5",   f_mtf_metrics(), lookahead = barmerge.lookahead_off)
+[a3,  r3,  e3,  v3,  px3]   = request.security(syminfo.tickerid, "3",   f_mtf_metrics(), lookahead = barmerge.lookahead_off)
+[a1,  r1,  e1,  v1,  px1]   = request.security(syminfo.tickerid, "1",   f_mtf_metrics(), lookahead = barmerge.lookahead_off)
 
-// ── Points (–3 → +3) ─────────────────────────────────────────────────────────
-pts_1D = a1d + r1d + e1d
-pts_4H = a4h + r4h + e4h
-pts_1H = a1h + r1h + e1h
-pts_15 = a15 + r15 + e15
-pts_5  = a5  + r5  + e5
-pts_3  = a3  + r3  + e3
-pts_1  = a1  + r1  + e1
+// ── Points (–4 → +4 with VWAP as 4th confluence) ────────────────────────────
+pts_1D = a1d + r1d + e1d + v1d
+pts_4H = a4h + r4h + e4h + v4h
+pts_1H = a1h + r1h + e1h + v1h
+pts_15 = a15 + r15 + e15 + v15
+pts_5  = a5  + r5  + e5  + v5
+pts_3  = a3  + r3  + e3  + v3
+pts_1  = a1  + r1  + e1  + v1
 
 // ── Dashboard helpers — must be at global scope (Pine Script v6) ─────────────
 f_pts_to_signal(pts) =>
-    pts >= 2 ? "  LONG  " : pts <= -2 ? "  SHORT  " : pts == 1 ? "PROBABLE ▲" : pts == -1 ? "PROBABLE ▼" : "ESPERANDO"
+    pts >= 3 ? "  LONG  " : pts <= -3 ? "  SHORT  " : pts == 2 ? "PROBABLE ▲" : pts == -2 ? "PROBABLE ▼" : "ESPERANDO"
 
 f_pts_to_dir(pts) =>
     pts > 0 ? "▲" : pts < 0 ? "▼" : "—"
 
 f_sig_color(pts) =>
-    pts >= 2 ? #00e676 : pts <= -2 ? #ff1744 : pts == 1 ? #69f0ae : pts == -1 ? #ff5252 : #78909c
+    pts >= 3 ? #00e676 : pts <= -3 ? #ff1744 : pts == 2 ? #69f0ae : pts == -2 ? #ff5252 : #78909c
 
 f_dir_color(pts) =>
     pts > 0 ? #00e676 : pts < 0 ? #ff1744 : #78909c
+
+show_mtf_signals = input.bool(true, "Show MTF Entry Signals (▲▼ MTF)", group = "═══ MTF DASHBOARD ═══")
 
 // ── Render table on last bar ──────────────────────────────────────────────────
 if enableMTF and barstate.islast
@@ -2593,7 +2599,7 @@ if enableMTF and barstate.islast
     // ── Column headers ──
     table.cell(mtf_tbl, 0, 1, "  TF  ",    text_color = c_subtext, bgcolor = c_header, text_size = txt_sz, text_halign = text.align_center)
     table.cell(mtf_tbl, 1, 1, " DIR ",     text_color = c_subtext, bgcolor = c_header, text_size = txt_sz, text_halign = text.align_center)
-    table.cell(mtf_tbl, 2, 1, " PTS ",     text_color = c_subtext, bgcolor = c_header, text_size = txt_sz, text_halign = text.align_center)
+    table.cell(mtf_tbl, 2, 1, "PTS/4",     text_color = c_subtext, bgcolor = c_header, text_size = txt_sz, text_halign = text.align_center)
     table.cell(mtf_tbl, 3, 1, "  SEÑAL  ", text_color = c_subtext, bgcolor = c_header, text_size = txt_sz, text_halign = text.align_center)
     table.cell(mtf_tbl, 4, 1, "  PRECIO ", text_color = c_subtext, bgcolor = c_header, text_size = txt_sz, text_halign = text.align_right)
 
@@ -2643,6 +2649,39 @@ if enableMTF and barstate.islast
          text_color = bias_col, bgcolor = c_footer,
          text_size = txt_sz, text_halign = text.align_center)
     table.merge_cells(mtf_tbl, 0, 9, 4, 9)
+
+// ============================================================================
+// MODULE: UNIFIED ENTRY SIGNAL
+// ============================================================================
+// Fires when ≥4/7 timeframes are aligned AND the main ATR trail confirms direction.
+// This is the "everything agrees" signal — high-conviction entries only.
+
+// Count aligned TFs
+mtf_bull_count = (pts_1D > 0 ? 1 : 0) + (pts_4H > 0 ? 1 : 0) + (pts_1H > 0 ? 1 : 0) +
+     (pts_15 > 0 ? 1 : 0) + (pts_5 > 0 ? 1 : 0) + (pts_3 > 0 ? 1 : 0) + (pts_1 > 0 ? 1 : 0)
+mtf_bear_count = (pts_1D < 0 ? 1 : 0) + (pts_4H < 0 ? 1 : 0) + (pts_1H < 0 ? 1 : 0) +
+     (pts_15 < 0 ? 1 : 0) + (pts_5 < 0 ? 1 : 0) + (pts_3 < 0 ? 1 : 0) + (pts_1 < 0 ? 1 : 0)
+
+// Unified long: ≥4 TFs bullish + ATR trail pointing up
+unified_long  = enableMTF and enableATR and mtf_bull_count >= 4 and up_down_trend == 'up'
+// Unified short: ≥4 TFs bearish + ATR trail pointing down
+unified_short = enableMTF and enableATR and mtf_bear_count >= 4 and up_down_trend == 'down'
+
+// Only fire on the first bar of the signal (edge detection)
+unified_long_signal  = unified_long  and not unified_long[1]
+unified_short_signal = unified_short and not unified_short[1]
+
+plotshape(show_mtf_signals and unified_long_signal,  title = "Unified Long",  style = shape.labelup,
+     location = location.belowbar, color = #00e676, textcolor = color.white,
+     text = "▲ MTF", size = size.small)
+plotshape(show_mtf_signals and unified_short_signal, title = "Unified Short", style = shape.labeldown,
+     location = location.abovebar, color = #ff1744, textcolor = color.white,
+     text = "▼ MTF", size = size.small)
+
+alertcondition(unified_long_signal,  title = "Unified LONG Signal",
+     message = "{{ticker}} — MTF LONG confluencia: {{close}}")
+alertcondition(unified_short_signal, title = "Unified SHORT Signal",
+     message = "{{ticker}} — MTF SHORT confluencia: {{close}}")
 
 // ============================================================================
 // END OF TACTICAL SUITE - FULL VERSION
