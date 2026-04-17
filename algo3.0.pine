@@ -4,7 +4,7 @@
 // Based on ATR Trend by Daniel_Ge + Mxwll Suite by Mxwll Capital
 
 //@version=6
-indicator("Algo2.0", overlay = true, max_labels_count = 500, max_lines_count = 500, max_boxes_count = 500, max_bars_back = 500)
+indicator("Algo3.0", overlay = true, max_labels_count = 500, max_lines_count = 500, max_boxes_count = 500, max_bars_back = 500)
 
 // ============================================================================
 // MODULE 1: ATR TREND - ALL CONFIGURATIONS
@@ -14,7 +14,7 @@ enableATR = input.bool(defval = true, title = "Enable ATR Trend", group = "═�
 // Source Settings
 atr_src = input.source(close, 'Source', group = 'ATR: Source Settings', tooltip = 'Source for ATR calculation')
 atr_src_hl = input.bool(true, 'Use Highest High & Lowest Low', group = 'ATR: Source Settings', tooltip = 'Use highest high & lowest low as source. Default is active. If unchecked the highest high & lowest low of \'Source\' will be used. This setting has a low - medium impact on trend calculation.')
-atr_length = input.int(1, 'Time Period', minval = 1, group = 'ATR: Source Settings', tooltip = 'The time period used to calculate ATR trend. Default is 10. This setting has a low - medium impact on trend calculation.')
+atr_length = input.int(5, 'Time Period', minval = 1, group = 'ATR: Source Settings', tooltip = 'The time period used to calculate ATR trend. Default is 5 for faster but cleaner 1m behavior.')
 
 // ATR Type and Settings
 atr_type = input.string('HMA', 'ATR Type', options = ['Classic ATR (RMA)', 'Linear Regression (LSMA)', 'Ehlers Super Smoother', 'Optimum Elliptic Filter', 'Butterworth 2 Pole', 'Hann', 'SMA', 'EMA', 'WMA', 'HMA'], group = 'ATR: Average True Range', tooltip = 'Moving average used to calculate ATR. Default is \'HMA\'. This setting has a medium impact on ATR trend calculation and is mostly for finetuning.')
@@ -149,6 +149,13 @@ div_showindis = input.string(defval = "Don't Show", title = "Show Indicator Name
 // ATR Filter Settings (Phase 6.1)
 div_use_atr_filter = input.bool(defval = false, title = "Filter Divergences by ATR Position", group = "Divergence: ATR Filter", tooltip = "Only show divergences when price closes above/below ATR lines. Bullish divergences require close > ATR, Bearish divergences require close < ATR")
 
+// Multi-Suite Confluence Filter (Phase 6.6)
+div_use_confluence_filter = input.bool(defval = false, title = "Use Momentum + ADX + WaveTrend Filter", group = "Divergence: Confluence Filter", tooltip = "Bullish divergences require momentum > 0, ADX above threshold and WT bull cross. Bearish uses opposite.")
+div_adx_len_cf = input.int(defval = 14, title = "ADX Length", minval = 2, group = "Divergence: Confluence Filter", inline = "cf1")
+div_adx_min_cf = input.float(defval = 20.0, title = "Min ADX", minval = 5, step = 0.5, group = "Divergence: Confluence Filter", inline = "cf1")
+div_wt_n1_cf = input.int(defval = 10, title = "WT Channel", minval = 2, group = "Divergence: Confluence Filter", inline = "cf2")
+div_wt_n2_cf = input.int(defval = 14, title = "WT Average", minval = 2, group = "Divergence: Confluence Filter", inline = "cf2")
+
 // Indicators to Check (Phase 6.2)
 div_calcmacd = input.bool(defval = true, title = "MACD", group = "Divergence: Indicators", inline = "ind1")
 div_calcmacda = input.bool(defval = true, title = "MACD Histogram", group = "Divergence: Indicators", inline = "ind1")
@@ -200,6 +207,7 @@ rsi_overbought_color = input.color(defval = color.red, title = "Overbought Color
 // AUTO CONFIG PER TIMEFRAME
 // ============================================================================
 autoConfig = input.bool(defval = true, title = "Auto-Configure per Timeframe", group = "═══ AUTO CONFIG ═══", tooltip = "Ajusta automáticamente ATR Weight, Sensibilidad y Divergencias según la temporalidad del gráfico. Desactiva para usar valores manuales.")
+precisionMode = input.bool(defval = true, title = "Precision Mode (1m)", group = "═══ AUTO CONFIG ═══", tooltip = "Reduce ruido en 1m subiendo confirmaciones y filtros de divergencia.")
 
 // Timeframe detection (in seconds)
 _tf = timeframe.in_seconds()
@@ -207,15 +215,16 @@ _tf = timeframe.in_seconds()
 
 // Effective ATR parameters
 eff_atr_multi   = autoConfig ? (_tf <= 60 ? 6.5 : _tf <= 180 ? 7.0 : _tf <= 300 ? 7.5 : _tf <= 900 ? 8.0 : _tf <= 1800 ? 8.5 : 9.0) : atr_multi
-eff_atr_length  = autoConfig ? (_tf <= 300 ? 1   : _tf <= 900 ? 2   : 3)                                                               : atr_length
+eff_atr_length  = autoConfig ? (_tf <= 60 ? (precisionMode ? 2 : 1) : _tf <= 300 ? 2 : _tf <= 900 ? 3 : 4)                             : atr_length
 
 // Effective SMC sensitivity
 eff_extSens     = autoConfig ? (_tf <= 300 ? 10  : _tf <= 1800 ? 25  : 50)                                                             : extSens
 eff_intSens     = autoConfig ? (_tf <= 180 ? 3   : _tf <= 900  ? 5   : 8)                                                              : intSens
 
 // Effective divergence parameters
-eff_div_prd     = autoConfig ? (_tf <= 60 ? 3 : _tf <= 180 ? 4 : _tf <= 300 ? 5 : _tf <= 900 ? 5 : 7)                                : div_prd
+eff_div_prd     = autoConfig ? (_tf <= 60 ? (precisionMode ? 4 : 3) : _tf <= 180 ? 4 : _tf <= 300 ? 5 : _tf <= 900 ? 5 : 7)         : div_prd
 eff_div_maxbars = autoConfig ? (_tf <= 60 ? 50 : _tf <= 180 ? 60 : _tf <= 300 ? 75 : _tf <= 900 ? 100 : _tf <= 1800 ? 150 : 200)     : div_maxbars
+eff_div_showlimit = autoConfig ? (_tf <= 60 ? (precisionMode ? 2 : 1) : _tf <= 300 ? (precisionMode ? 2 : 1) : div_showlimit)         : div_showlimit
 
 // ============================================================================
 // ATR TREND IMPLEMENTATION
@@ -325,8 +334,8 @@ atr_sell_channel_signal = float(na)
 
 if enableATR
     // Calculate ATR values
-    atr = get_atr(5, atr_type) * eff_atr_multi
-    fast_atr = get_atr(5, atr_type) * fast_atr_multi
+    atr = get_atr(eff_atr_length, atr_type) * eff_atr_multi
+    fast_atr = get_atr(eff_atr_length, atr_type) * fast_atr_multi
     
     // Highest/Lowest of source
     lower = ta.lowest(atr_src, eff_atr_length)
@@ -1719,7 +1728,7 @@ if enableDivergence
     for x = 0 to array.size(div_all_divergences) - 1
         div_total_div := div_total_div + math.round(math.sign(array.get(div_all_divergences, x)))
     
-    if div_total_div < div_showlimit
+    if div_total_div < eff_div_showlimit
         array.fill(div_all_divergences, 0)
     
     // ========================================================================
@@ -1750,6 +1759,48 @@ if enableDivergence
             
             // Clear bearish divergences if price is not below ATR lines
             if not atr_allows_bearish_div
+                if neg_reg_div > 0
+                    array.set(div_all_divergences, x * 4 + 1, 0)
+                if neg_hid_div > 0
+                    array.set(div_all_divergences, x * 4 + 3, 0)
+
+    // ========================================================================
+    // PHASE 6.4.6: MOMENTUM + ADX + WAVETREND CONFLUENCE FILTER
+    // ========================================================================
+
+    wt_ap_cf = hlc3
+    wt_esa_cf = ta.ema(wt_ap_cf, div_wt_n1_cf)
+    wt_d_cf = ta.ema(math.abs(wt_ap_cf - wt_esa_cf), div_wt_n1_cf)
+    wt_ci_cf = (wt_ap_cf - wt_esa_cf) / (0.015 * wt_d_cf)
+    wt1_cf = ta.ema(wt_ci_cf, div_wt_n2_cf)
+    wt2_cf = ta.sma(wt1_cf, 4)
+    wt_bull_cf = ta.crossover(wt1_cf, wt2_cf) or (wt1_cf > wt2_cf and wt1_cf > wt1_cf[1])
+    wt_bear_cf = ta.crossunder(wt1_cf, wt2_cf) or (wt1_cf < wt2_cf and wt1_cf < wt1_cf[1])
+
+    [plusDI_cf, minusDI_cf, adx_cf] = ta.dmi(div_adx_len_cf, div_adx_len_cf)
+    adx_bull_cf = adx_cf >= div_adx_min_cf and plusDI_cf > minusDI_cf
+    adx_bear_cf = adx_cf >= div_adx_min_cf and minusDI_cf > plusDI_cf
+
+    mom_bull_cf = div_moment > 0 and div_moment > div_moment[1]
+    mom_bear_cf = div_moment < 0 and div_moment < div_moment[1]
+
+    confluence_allows_bullish_div = not div_use_confluence_filter or (mom_bull_cf and adx_bull_cf and wt_bull_cf)
+    confluence_allows_bearish_div = not div_use_confluence_filter or (mom_bear_cf and adx_bear_cf and wt_bear_cf)
+
+    if div_use_confluence_filter
+        for x = 0 to 10
+            pos_reg_div = array.get(div_all_divergences, x * 4 + 0)
+            neg_reg_div = array.get(div_all_divergences, x * 4 + 1)
+            pos_hid_div = array.get(div_all_divergences, x * 4 + 2)
+            neg_hid_div = array.get(div_all_divergences, x * 4 + 3)
+
+            if not confluence_allows_bullish_div
+                if pos_reg_div > 0
+                    array.set(div_all_divergences, x * 4 + 0, 0)
+                if pos_hid_div > 0
+                    array.set(div_all_divergences, x * 4 + 2, 0)
+
+            if not confluence_allows_bearish_div
                 if neg_reg_div > 0
                     array.set(div_all_divergences, x * 4 + 1, 0)
                 if neg_hid_div > 0
