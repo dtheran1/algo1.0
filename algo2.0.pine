@@ -36,6 +36,11 @@ trend_filling = input.bool(true, 'Fill Price/Trend', group = 'ATR: Style', toolt
 channel_fill = input.bool(false, 'Fill Smoothed Range Channel', group = 'ATR: Style', tooltip = 'Fills smoothed range channel.')
 channel_gradient = input.bool(false, 'Use Gradient Filling for Channel', group = 'ATR: Style', tooltip = 'Use Gradient Filling instead of regular filling')
 
+// Dynamic Stop Loss
+show_sl      = input.bool(true,  'Show Dynamic Stop Loss', group = 'ATR: Style', tooltip = 'Plots a suggested stop loss level based on ATR Trail ± 1 ATR(14). Long SL below trail, Short SL above trail.')
+sl_atr_len   = input.int(14, 'SL ATR Length', minval = 1, group = 'ATR: Style', tooltip = 'ATR period used to calculate the stop loss offset from the trail.')
+sl_atr_mult  = input.float(1.0, 'SL ATR Multiplier', minval = 0.1, step = 0.1, group = 'ATR: Style', tooltip = 'Multiplier for the ATR offset. 1.0 = 1 ATR de distancia del trail.')
+
 // Linear Regression Adjustments
 lr_offset = input.int(0, 'Linear Regression Offset', group = 'ATR: Linear Regression (LSMA)', tooltip = 'Only used when \'Linear Regression (LSMA)\' is set as ATR type. Default is 0. This setting should be considered as a fine tuning / adjustment option.')
 lr_length = input.int(20, 'Linear Regression Length', minval = 2, group = 'ATR: Linear Regression (LSMA)', tooltip = 'Only used when \'Linear Regression (LSMA)\' is set as ATR type. Default is 20. This setting should be considered as a fine tuning / adjustment option.')
@@ -206,8 +211,10 @@ _tf = timeframe.in_seconds()
 // 1m=60  3m=180  5m=300  15m=900  30m=1800  1H=3600  4H=14400
 
 // Effective ATR parameters
-eff_atr_multi   = autoConfig ? (_tf <= 60 ? 6.5 : _tf <= 180 ? 7.0 : _tf <= 300 ? 7.5 : _tf <= 900 ? 8.0 : _tf <= 1800 ? 8.5 : 9.0) : atr_multi
-eff_atr_length  = autoConfig ? (_tf <= 300 ? 1   : _tf <= 900 ? 2   : 3)                                                               : atr_length
+eff_atr_multi      = autoConfig ? (_tf <= 60 ? 6.5 : _tf <= 180 ? 7.0 : _tf <= 300 ? 7.5 : _tf <= 900 ? 8.0 : _tf <= 1800 ? 8.5 : 9.0) : atr_multi
+eff_atr_length     = autoConfig ? (_tf <= 300 ? 2   : _tf <= 900 ? 3   : 4)                                                               : math.max(atr_length, 2)
+// Fast trail más ajustado en TFs bajos → entradas más finas
+eff_fast_atr_multi = autoConfig ? (_tf <= 60 ? 1.5 : _tf <= 180 ? 2.0 : _tf <= 300 ? 2.5 : _tf <= 900 ? 3.0 : 3.5)                     : fast_atr_multi
 
 // Effective SMC sensitivity
 eff_extSens     = autoConfig ? (_tf <= 300 ? 10  : _tf <= 1800 ? 25  : 50)                                                             : extSens
@@ -323,10 +330,14 @@ atr_sell_fast_cross_signal = float(na)
 atr_buy_channel_signal = float(na)
 atr_sell_channel_signal = float(na)
 
+// Dynamic SL variables
+atr_sl_long  = float(na)
+atr_sl_short = float(na)
+
 if enableATR
     // Calculate ATR values
-    atr = get_atr(5, atr_type) * eff_atr_multi
-    fast_atr = get_atr(5, atr_type) * fast_atr_multi
+    atr      = get_atr(eff_atr_length, atr_type) * eff_atr_multi
+    fast_atr = get_atr(eff_atr_length, atr_type) * eff_fast_atr_multi
     
     // Highest/Lowest of source
     lower = ta.lowest(atr_src, eff_atr_length)
@@ -435,6 +446,11 @@ if enableATR
     atr_sell_fast_cross_signal := show_atr_signals and show_fast and sell_fast_trend_crossunder ? atr_trend + atr : na
     atr_buy_channel_signal := show_atr_signals and show_channel and buy_channel ? atr_trend - atr : na
     atr_sell_channel_signal := show_atr_signals and show_channel and sell_channel ? atr_trend + atr : na
+
+    // Dynamic SL: trail ± (ATR14 × multiplier)
+    _sl_offset = ta.atr(sl_atr_len) * sl_atr_mult
+    atr_sl_long  := show_sl and up_down_trend == 'up'   ? atr_trend - _sl_offset : na
+    atr_sl_short := show_sl and up_down_trend == 'down' ? atr_trend + _sl_offset : na
     
     // ========================================================================
     // ALERTS
@@ -477,6 +493,10 @@ p4 = plot(enableATR ? atr_channel_lower : na, 'Lower Channel', color = color(#e9
 
 // DC Switch
 p5 = plot(enableATR ? atr_dc_switch_value : na, 'DC Switch', color = color(#2a95ff), linewidth = 1)
+
+// Dynamic Stop Loss
+plot(enableATR ? atr_sl_long  : na, 'SL Long',  color = color.new(#ff1744, 30), linewidth = 1, style = plot.style_linebr)
+plot(enableATR ? atr_sl_short : na, 'SL Short', color = color.new(#ff1744, 30), linewidth = 1, style = plot.style_linebr)
 
 // ============================================================================
 // FILLING
