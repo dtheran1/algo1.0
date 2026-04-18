@@ -1882,28 +1882,30 @@ if enableDivergence
         if divergence_text_top != ""
             if div_showlast
                 delete_old_neg_div_labels()
-            array.push(neg_div_labels, 
+            array.push(neg_div_labels,
                  label.new(
                      x = bar_index,
                      y = math.max(high, high[1]),
                      text = divergence_text_top,
                      color = top_label_col,
                      textcolor = div_neg_div_text_col,
-                     style = label.style_label_down
+                     style = label.style_label_down,
+                     size = size.tiny
                      ))
         
         // Create bottom label (positive divergences)
         if divergence_text_bottom != ""
             if div_showlast
                 delete_old_pos_div_labels()
-            array.push(pos_div_labels, 
+            array.push(pos_div_labels,
                  label.new(
                      x = bar_index,
                      y = math.min(low, low[1]),
                      text = divergence_text_bottom,
                      color = bottom_label_col,
                      textcolor = div_pos_div_text_col,
-                     style = label.style_label_up
+                     style = label.style_label_up,
+                     size = size.tiny
                      ))
 
 // Show pivot points optionally (for debugging/visualization)
@@ -2174,7 +2176,7 @@ if sweep_showSwing and not na(sweep_pHigh) and sweep_bearishSFP[sweep_lbRight] =
     sweep_highLine := line.new(bar_index[sweep_lbRight], high[sweep_lbRight], bar_index + 10, high[sweep_lbRight], color = sweep_swingClr, width = 2)
 
     sweep_swingHighLbl := label.new(bar_index[sweep_lbRight], high[sweep_lbRight], text = "", yloc = yloc.abovebar, color = sweep_swingClr, textcolor = sweep_swingClr, style = label.style_triangledown, size = size.auto)
-    sweep_swingHighLblTxt := label.new(bar_index[sweep_lbRight], high[sweep_lbRight], text = "Swing\nH", yloc = yloc.abovebar, color = sweep_swingClr, textcolor = sweep_swingClr, style = label.style_none, size = size.small)
+    sweep_swingHighLblTxt := label.new(bar_index[sweep_lbRight], high[sweep_lbRight], text = "Swing\nH", yloc = yloc.abovebar, color = sweep_swingClr, textcolor = sweep_swingClr, style = label.style_none, size = size.tiny)
     array.push(sweep_swingHighArr, sweep_swingHighLbl)
     array.push(sweep_swingHighTextArr, sweep_swingHighLblTxt)
 
@@ -2185,7 +2187,7 @@ if sweep_showSwing and not na(sweep_pLow) and sweep_bullishSFP[sweep_lbRight] ==
     sweep_lowLine := line.new(bar_index[sweep_lbRight], low[sweep_lbRight], bar_index + 10, low[sweep_lbRight], color = sweep_swingClr, width = 2)
 
     sweep_swingLowLbl := label.new(bar_index[sweep_lbRight], low[sweep_lbRight], text = "", yloc = yloc.belowbar, color = sweep_swingClr, textcolor = sweep_swingClr, style = label.style_triangleup, size = size.auto)
-    sweep_swingLowLblTxt := label.new(bar_index[sweep_lbRight], low[sweep_lbRight], text = "Swing\nL", yloc = yloc.belowbar, color = sweep_swingClr, textcolor = sweep_swingClr, style = label.style_none, size = size.small)
+    sweep_swingLowLblTxt := label.new(bar_index[sweep_lbRight], low[sweep_lbRight], text = "Swing\nL", yloc = yloc.belowbar, color = sweep_swingClr, textcolor = sweep_swingClr, style = label.style_none, size = size.tiny)
     array.push(sweep_swingLowArr, sweep_swingLowLbl)
     array.push(sweep_swingLowTextArr, sweep_swingLowLblTxt)
 
@@ -2193,8 +2195,8 @@ if sweep_showSwing and not na(sweep_pLow) and sweep_bullishSFP[sweep_lbRight] ==
 // SWEEP PLOT SIGNALS (Must be in global scope)
 // ============================================================================
 
-plotshape(enableSweep and sweep_bullCond, text = "Sweep", color = sweep_bullColor, textcolor = sweep_bullColor, location = location.belowbar, offset = -3)
-plotshape(enableSweep and sweep_bearCond, text = "Sweep", color = sweep_bearColor, textcolor = sweep_bearColor, location = location.abovebar, offset = -3)
+plotshape(enableSweep and sweep_bullCond, text = "Sweep", color = sweep_bullColor, textcolor = sweep_bullColor, location = location.belowbar, offset = -3, size = size.tiny)
+plotshape(enableSweep and sweep_bearCond, text = "Sweep", color = sweep_bearColor, textcolor = sweep_bearColor, location = location.abovebar, offset = -3, size = size.tiny)
 
 // ============================================================================
 // END OF SWEEP INSTITUTIONAL MODULE
@@ -2225,7 +2227,7 @@ rsi_visual_oversold = input.int(30, title = "Oversold Level", minval = 0, maxval
 
 // Divergence Detection Settings (Manual override when Custom is selected)
 rsi_div_pivot_length = input.int(3, title = "Pivot Length", minval = 1, maxval = 20, group = "RSI Visual: Divergence", tooltip = "Auto: 1m=2, 3m=3, 15m=5, 1h=5, 4h=7")
-rsi_div_show_labels = input.bool(true, title = "Show Bear/Bull Labels", group = "RSI Visual: Divergence")
+rsi_div_show_labels = input.bool(false, title = "Show Bear/Bull Labels", group = "RSI Visual: Divergence")
 rsi_div_lookback = input.int(25, title = "Lookback Bars", minval = 10, maxval = 200, group = "RSI Visual: Divergence", tooltip = "Auto: 1m=15, 3m=25, 15m=40, 1h=50, 4h=60")
 rsi_div_max_lines = input.int(5, title = "Max Lines to Show", minval = 1, maxval = 20, group = "RSI Visual: Divergence")
 
