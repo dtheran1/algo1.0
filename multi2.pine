@@ -1,5 +1,5 @@
 //@version=6
-indicator(title="Multi-Indicator Suite: RSI + Momentum + ADX + WaveTrend", shorttitle="Multi Suite", timeframe="", timeframe_gaps=true)
+indicator(title="Multi-Indicator Suite: RSI + Momentum + ADX + WaveTrend + MACD", shorttitle="Multi Suite", max_lines_count=500, max_labels_count=500)
 
 //══════════════════════════════════════════════════════════════════════════════
 // RSI DIVERGENCE SECTION
@@ -384,3 +384,98 @@ plot(show_WaveTrend ? wt1-wt2 : na, color=color.new(color.blue, 80), style=plot.
 plot(show_WaveTrend and ta.cross(wt1, wt2) ? wt2 : na, color=color.black, style=plot.style_circles, linewidth=3, title="Cross Outer")
 plot(show_WaveTrend and ta.cross(wt1, wt2) ? wt2 : na, color=(wt2 - wt1 > 0 ? color.red : color.lime), style=plot.style_circles, linewidth=2, title="Cross Inner")
 barcolor(show_WaveTrend and ta.cross(wt1, wt2) ? (wt2 - wt1 > 0 ? color.aqua : color.yellow) : na, title="Cross Barcolor")
+//══════════════════════════════════════════════════════════════════════════════
+// MACD WITH DIVERGENCES SECTION
+//══════════════════════════════════════════════════════════════════════════════
+
+// MACD Inputs
+show_MACD = input.bool(true, title="Show MACD", group="MACD")
+fast_mc = input.int(12, "Fast Length", minval=1, group="MACD")
+slow_mc = input.int(26, "Slow Length", minval=1, group="MACD")
+sig_mc = input.int(9, "Signal Length", minval=1, group="MACD")
+src_mc = input.source(close, "Source", group="MACD")
+show_lines_mc = input.bool(true, "Show MACD/Signal Lines", group="MACD")
+show_hist_mc = input.bool(true, "Show Histogram", group="MACD")
+norm_length_mc = input.int(100, "Normalization Lookback", group="MACD", tooltip="Bars used to scale MACD to the shared pane. Higher = more stable scale.")
+norm_scale_mc = input.float(50.0, "Normalized Scale", minval=1.0, step=5.0, group="MACD", tooltip="Max amplitude of MACD. 50 = fits alongside RSI/ADX/WaveTrend.")
+
+// MACD Divergence Inputs
+plotBull_mc = input.bool(true, "Plot Bullish", group="MACD Divergence")
+plotHiddenBull_mc = input.bool(false, "Plot Hidden Bullish", group="MACD Divergence")
+plotBear_mc = input.bool(true, "Plot Bearish", group="MACD Divergence")
+plotHiddenBear_mc = input.bool(false, "Plot Hidden Bearish", group="MACD Divergence")
+lbL_mc = input.int(5, "Pivot Lookback Left", minval=1, group="MACD Divergence")
+lbR_mc = input.int(5, "Pivot Lookback Right", minval=1, group="MACD Divergence")
+rangeUpper_mc = input.int(60, "Max of Lookback Range", group="MACD Divergence")
+rangeLower_mc = input.int(5, "Min of Lookback Range", group="MACD Divergence")
+
+// MACD Colors
+col_fast_mc = input.color(#2962FF, "Fast Line", group="MACD Colors")
+col_slow_mc = input.color(#FF6D00, "Signal Line", group="MACD Colors")
+col_h_up_bull_mc = input.color(#26A69A, "Hist Rising Bullish", group="MACD Colors")
+col_h_dn_bull_mc = input.color(#B2DFDB, "Hist Falling Bullish", group="MACD Colors")
+col_h_up_bear_mc = input.color(#FFCDD2, "Hist Rising Bearish", group="MACD Colors")
+col_h_dn_bear_mc = input.color(#FF5252, "Hist Falling Bearish", group="MACD Colors")
+
+// MACD Calculation
+[macd_raw_mc, sig_raw_mc, hist_raw_mc] = ta.macd(src_mc, fast_mc, slow_mc, sig_mc)
+
+// Normalize to a fixed scale (same factor for all three so shapes are preserved)
+_abs_max_mc = ta.highest(math.abs(macd_raw_mc), norm_length_mc)
+_k_mc = _abs_max_mc != 0 ? norm_scale_mc / _abs_max_mc : 1.0
+macd_mc = macd_raw_mc * _k_mc
+sig_mc_n = sig_raw_mc * _k_mc
+hist_mc = hist_raw_mc * _k_mc
+
+// MACD Plots
+_hist_col_mc = hist_mc >= 0 ? (hist_mc > nz(hist_mc[1]) ? col_h_up_bull_mc : col_h_dn_bull_mc) : (hist_mc > nz(hist_mc[1]) ? col_h_up_bear_mc : col_h_dn_bear_mc)
+plot(show_MACD and show_hist_mc ? hist_mc : na, title="MACD Histogram", style=plot.style_columns, color=_hist_col_mc)
+plot(show_MACD and show_lines_mc ? macd_mc : na, title="MACD", color=col_fast_mc, linewidth=2)
+plot(show_MACD and show_lines_mc ? sig_mc_n : na, title="MACD Signal", color=col_slow_mc, linewidth=2)
+
+// MACD Divergence Logic (pivots on the histogram, compared against price pivots)
+plFound_mc = not na(ta.pivotlow(hist_mc, lbL_mc, lbR_mc))
+phFound_mc = not na(ta.pivothigh(hist_mc, lbL_mc, lbR_mc))
+
+_inRange_mc(cond) =>
+    bars = ta.barssince(cond == true)
+    rangeLower_mc <= bars and bars <= rangeUpper_mc
+
+inRangePl_mc = _inRange_mc(plFound_mc[1])
+inRangePh_mc = _inRange_mc(phFound_mc[1])
+
+// Previous pivot values (oscillator, price, bar index)
+_hl_prev_mc = ta.valuewhen(plFound_mc, hist_mc[lbR_mc], 1)
+_ll_prev_mc = ta.valuewhen(plFound_mc, low[lbR_mc], 1)
+_lx_prev_mc = ta.valuewhen(plFound_mc, bar_index[lbR_mc], 1)
+_hh_prev_mc = ta.valuewhen(phFound_mc, hist_mc[lbR_mc], 1)
+_hp_prev_mc = ta.valuewhen(phFound_mc, high[lbR_mc], 1)
+_hx_prev_mc = ta.valuewhen(phFound_mc, bar_index[lbR_mc], 1)
+
+// Lows must sit below zero and highs above it, otherwise the pivots are not comparable
+_lowsNeg_mc = hist_mc[lbR_mc] < 0 and _hl_prev_mc < 0
+_highsPos_mc = hist_mc[lbR_mc] > 0 and _hh_prev_mc > 0
+
+bullAlert_mc = plFound_mc and inRangePl_mc and _lowsNeg_mc and hist_mc[lbR_mc] > _hl_prev_mc and low[lbR_mc] < _ll_prev_mc
+hiddenBullAlert_mc = plFound_mc and inRangePl_mc and _lowsNeg_mc and hist_mc[lbR_mc] < _hl_prev_mc and low[lbR_mc] > _ll_prev_mc
+bearAlert_mc = phFound_mc and inRangePh_mc and _highsPos_mc and hist_mc[lbR_mc] < _hh_prev_mc and high[lbR_mc] > _hp_prev_mc
+hiddenBearAlert_mc = phFound_mc and inRangePh_mc and _highsPos_mc and hist_mc[lbR_mc] > _hh_prev_mc and high[lbR_mc] < _hp_prev_mc
+
+f_div_mc(_x1, _y1, _x2, _y2, _col, _txt, _up) =>
+    line.new(_x1, _y1, _x2, _y2, xloc=xloc.bar_index, color=_col, width=2)
+    label.new(_x2, _y2, _txt, xloc=xloc.bar_index, style=_up ? label.style_label_up : label.style_label_down, color=_col, textcolor=color.white, size=size.tiny)
+
+if show_MACD
+    if plotBull_mc and bullAlert_mc
+        f_div_mc(_lx_prev_mc, _hl_prev_mc, bar_index[lbR_mc], hist_mc[lbR_mc], bullColor, "Alcista", true)
+    if plotHiddenBull_mc and hiddenBullAlert_mc
+        f_div_mc(_lx_prev_mc, _hl_prev_mc, bar_index[lbR_mc], hist_mc[lbR_mc], bullColor, "Alcista Oculta", true)
+    if plotBear_mc and bearAlert_mc
+        f_div_mc(_hx_prev_mc, _hh_prev_mc, bar_index[lbR_mc], hist_mc[lbR_mc], bearColor, "Bajista", false)
+    if plotHiddenBear_mc and hiddenBearAlert_mc
+        f_div_mc(_hx_prev_mc, _hh_prev_mc, bar_index[lbR_mc], hist_mc[lbR_mc], bearColor, "Bajista Oculta", false)
+
+alertcondition(bullAlert_mc, title='MACD Regular Bullish Divergence', message='MACD: Regular Bullish Divergence')
+alertcondition(hiddenBullAlert_mc, title='MACD Hidden Bullish Divergence', message='MACD: Hidden Bullish Divergence')
+alertcondition(bearAlert_mc, title='MACD Regular Bearish Divergence', message='MACD: Regular Bearish Divergence')
+alertcondition(hiddenBearAlert_mc, title='MACD Hidden Bearish Divergence', message='MACD: Hidden Bearish Divergence')
